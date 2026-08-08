@@ -1,0 +1,9 @@
+{
+  "bossbar.bossrefactoraether.slider.status": "  [➤ 滑 %1$s] [⬢ 障 %2$s]",
+  "label.bossrefactoraether.slider.glide_power": "➤ 滑 %s",
+  "label.bossrefactoraether.slider.barrier_layers": "⬢ 障 %s",
+  "death.attack.bossrefactoraether.valkyrie_queen_lightning": "%1$s was struck down by the Valkyrie Queen's thunder",
+  "death.attack.bossrefactoraether.valkyrie_queen_lightning.player": "%1$s was struck down by thunder called by %2$s",
+  "death.attack.bossrefactoraether.unblockable_slider_dash": "%1$s was crushed by a relentless Slider",
+  "death.attack.bossrefactoraether.unblockable_slider_dash.player": "%1$s was crushed by %2$s"
+}

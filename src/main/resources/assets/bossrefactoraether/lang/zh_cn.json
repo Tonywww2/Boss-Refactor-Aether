@@ -1,0 +1,9 @@
+{
+  "bossbar.bossrefactoraether.slider.status": "  [➤ 滑 %1$s] [⬢ 障 %2$s]",
+  "label.bossrefactoraether.slider.glide_power": "➤ 滑 %s",
+  "label.bossrefactoraether.slider.barrier_layers": "⬢ 障 %s",
+  "death.attack.bossrefactoraether.valkyrie_queen_lightning": "%1$s被武神女王的雷霆击倒了",
+  "death.attack.bossrefactoraether.valkyrie_queen_lightning.player": "%1$s被%2$s召来的雷霆击倒了",
+  "death.attack.bossrefactoraether.unblockable_slider_dash": "%1$s被势不可挡的滑行魔石碾碎了",
+  "death.attack.bossrefactoraether.unblockable_slider_dash.player": "%1$s被%2$s碾碎了"
+}

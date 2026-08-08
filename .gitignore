@@ -1,0 +1,54 @@
+# Gradle
+.gradle/
+build/
+mcmodsrepo/
+
+# Minecraft / Forge development runs
+run/
+runs/
+run-*/
+run-data/
+logs/
+crash-reports/
+.mixin.out/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+classes/
+
+# Eclipse
+.classpath
+.project
+.settings/
+.metadata/
+eclipse/
+bin/
+*.launch
+
+# Visual Studio Code
+.vscode/
+
+# Logs and JVM crash output
+*.log
+hs_err_pid*
+replay_pid*
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary and backup files
+*.tmp
+*.bak
+*.swp
+*~
+
+# Forge MDK leftovers
+forge*changelog.txt
+
+# gradle/wrapper and libs contain required build inputs and are intentionally tracked.
