@@ -6,4 +6,5 @@ public interface ValkyrieQueenParryBridge {
     boolean openWindow(ValkyrieQueen queen);
 
     boolean closeWindow(ValkyrieQueen queen);
+
 }

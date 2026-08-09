@@ -15,6 +15,7 @@ public final class ValkyrieQueenParryIntegration {
         public boolean closeWindow(ValkyrieQueen queen) {
             return false;
         }
+
     };
 
     private static ValkyrieQueenParryBridge bridge = NOOP;

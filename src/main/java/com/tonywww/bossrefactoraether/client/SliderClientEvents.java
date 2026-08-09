@@ -3,6 +3,7 @@ package com.tonywww.bossrefactoraether.client;
 import com.aetherteam.aether.entity.monster.dungeon.boss.Slider;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.tonywww.bossrefactoraether.BossRefactorAether;
+import com.tonywww.bossrefactoraether.config.BossRefactorAetherConfig;
 import com.tonywww.bossrefactoraether.slider.SliderStateAccess;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -50,7 +51,11 @@ public final class SliderClientEvents {
         EntityRenderDispatcher dispatcher = minecraft.getEntityRenderDispatcher();
         PoseStack poseStack = event.getPoseStack();
         poseStack.pushPose();
-        poseStack.translate(0.0, slider.getBbHeight() + 0.65, 0.0);
+        poseStack.translate(
+            0.0,
+            slider.getBbHeight()
+                + BossRefactorAetherConfig.SLIDER_DISPLAY.statusLabelHeightOffset.get(),
+            0.0);
         poseStack.mulPose(dispatcher.cameraOrientation());
         poseStack.scale(-0.025F, -0.025F, 0.025F);
         float glideWidth = font.width(glideLabel);

@@ -1,6 +1,7 @@
 package com.tonywww.bossrefactoraether.config;
 
 import com.tonywww.bossrefactoraether.slider.SliderMechanics;
+import com.tonywww.bossrefactoraether.sunspirit.SunSpiritMechanics;
 import com.tonywww.bossrefactoraether.valkyriequeen.ValkyrieQueenMechanics;
 import net.minecraftforge.common.ForgeConfigSpec;
 
@@ -17,10 +18,15 @@ public final class BossRefactorAetherConfig {
         public static final SliderMovementConfig SLIDER_MOVEMENT;
         public static final SliderTimingConfig SLIDER_TIMING;
         public static final SliderRangeConfig SLIDER_RANGE;
+        public static final SliderDisplayConfig SLIDER_DISPLAY;
         public static final ValkyrieQueenCombatConfig VALKYRIE_QUEEN_COMBAT;
         public static final ValkyrieQueenDamageConfig VALKYRIE_QUEEN_DAMAGE;
         public static final ValkyrieQueenTimingConfig VALKYRIE_QUEEN_TIMING;
         public static final ValkyrieQueenRangeConfig VALKYRIE_QUEEN_RANGE;
+        public static final SunSpiritCombatConfig SUN_SPIRIT_COMBAT;
+        public static final SunSpiritDamageConfig SUN_SPIRIT_DAMAGE;
+        public static final SunSpiritTimingConfig SUN_SPIRIT_TIMING;
+        public static final SunSpiritRangeConfig SUN_SPIRIT_RANGE;
         public static final AttackTelegraphConfig ATTACK_TELEGRAPH;
 
     static {
@@ -32,6 +38,7 @@ public final class BossRefactorAetherConfig {
         SLIDER_MOVEMENT = new SliderMovementConfig(builder);
         SLIDER_TIMING = new SliderTimingConfig(builder);
         SLIDER_RANGE = new SliderRangeConfig(builder);
+        SLIDER_DISPLAY = new SliderDisplayConfig(builder);
         builder.pop();
 
         builder.comment("Valkyrie Queen settings.", "武神女王设置。")
@@ -40,6 +47,14 @@ public final class BossRefactorAetherConfig {
         VALKYRIE_QUEEN_DAMAGE = new ValkyrieQueenDamageConfig(builder);
         VALKYRIE_QUEEN_TIMING = new ValkyrieQueenTimingConfig(builder);
         VALKYRIE_QUEEN_RANGE = new ValkyrieQueenRangeConfig(builder);
+        builder.pop();
+
+        builder.comment("Sun Spirit settings.", "烈阳巨灵设置。")
+                .push("sun_spirit");
+        SUN_SPIRIT_COMBAT = new SunSpiritCombatConfig(builder);
+        SUN_SPIRIT_DAMAGE = new SunSpiritDamageConfig(builder);
+        SUN_SPIRIT_TIMING = new SunSpiritTimingConfig(builder);
+        SUN_SPIRIT_RANGE = new SunSpiritRangeConfig(builder);
         builder.pop();
 
         ATTACK_TELEGRAPH = new AttackTelegraphConfig(builder);
@@ -66,10 +81,9 @@ public final class BossRefactorAetherConfig {
         public final ForgeConfigSpec.DoubleValue fullPickaxeAttackStrength;
         public final ForgeConfigSpec.DoubleValue blockBreakSampleStep;
         public final ForgeConfigSpec.IntValue maxBlockBreakSamples;
-        public final ForgeConfigSpec.BooleanValue forceBreakBlockedBlocks;
+        public final ForgeConfigSpec.BooleanValue blockBreakIgnoresMobGriefing;
         public final ForgeConfigSpec.BooleanValue immuneToNegativeEffects;
-        public final ForgeConfigSpec.IntValue glidePowerGainOnHit;
-        public final ForgeConfigSpec.IntValue glidePowerGainOnMiss;
+        public final ForgeConfigSpec.IntValue glidePowerGainPerPatrolEdge;
         public final ForgeConfigSpec.IntValue glidePowerGainOnBarrierBreak;
         public final ForgeConfigSpec.BooleanValue phaseTwoFirstDashUnblockable;
 
@@ -128,20 +142,18 @@ public final class BossRefactorAetherConfig {
                     SliderMechanics.MAX_BLOCK_BREAK_SAMPLES, 1, 1024,
                     "Maximum block-breaking samples per tick.",
                     "每 tick 最大方块破坏采样数。");
-            forceBreakBlockedBlocks = builder.comment(
-                            "Force-break blocking blocks when ordinary tactical movement is horizontally obstructed. Still respects mobGriefing, protected tags, unbreakable hardness, block entities, and Forge cancellation events.",
-                            "普通战术移动被水平阻挡时强制破坏阻挡方块。仍遵守 mobGriefing、保护标签、不可破坏硬度、方块实体和 Forge 取消事件。")
-                    .define("force_break_blocked_blocks", true);
+            blockBreakIgnoresMobGriefing = builder.comment(
+                            "Allow Slider movement to break blocks during an active boss fight even when a modpack denies mobGriefing. Blocks in bossrefactoraether:slider_force_breakable override protected tags, hardness, and canEntityDestroy; block entities and Forge per-block cancellation events are always respected.",
+                            "魔石 Boss 战中，即使整合包禁止 mobGriefing，也允许移动破坏方块。bossrefactoraether:slider_force_breakable 中的方块会覆盖保护标签、硬度与 canEntityDestroy；方块实体和 Forge 逐方块取消事件始终受到保护。")
+                    .define("block_break_ignores_mob_griefing", true);
             immuneToNegativeEffects = builder.comment(
                             "Make the Slider immune to all HARMFUL mob effects and remove existing harmful effects.",
                             "使滑行魔石免疫全部 HARMFUL 负面效果，并清除已有负面效果。")
                     .define("immune_to_negative_effects", true);
-            glidePowerGainOnHit = defineInt(builder, "glide_power_gain_on_hit", 1,
-                    0, 100, "Glide Power gained when an ordinary move hits a player.",
-                    "普通移动命中玩家时获得的滑行力。");
-            glidePowerGainOnMiss = defineInt(builder, "glide_power_gain_on_miss", 2,
-                    0, 100, "Glide Power gained when an ordinary move misses.",
-                    "普通移动未命中玩家时获得的滑行力。");
+            glidePowerGainPerPatrolEdge = defineInt(
+                    builder, "glide_power_gain_per_patrol_edge", 2, 0, 100,
+                    "Glide Power gained after completing one arena edge.",
+                    "每完成一条场地边缘巡航时获得的滑行力。");
             glidePowerGainOnBarrierBreak = defineInt(builder,
                     "glide_power_gain_on_barrier_break", 1, 0, 100,
                     "Glide Power gained when one Stone Barrier layer is removed.",
@@ -169,7 +181,8 @@ public final class BossRefactorAetherConfig {
                     "normal_collision",
                     SliderMechanics.DEFAULT_NORMAL_BASE_DAMAGE,
                     SliderMechanics.DEFAULT_NORMAL_ATTACK_DAMAGE_MULTIPLIER,
-                    "Normal tactical collision.", "普通战术冲撞。");
+                    "Fallback Aether collision outside arena control.",
+                    "场地移动未接管时的天境原版碰撞。");
             chainDash = defineDamageFormula(
                     builder,
                     "chain_dash",
@@ -196,9 +209,9 @@ public final class BossRefactorAetherConfig {
         public final ForgeConfigSpec.DoubleValue baseSpeedMultiplier;
         public final ForgeConfigSpec.DoubleValue phaseTwoSpeedMultiplier;
         public final ForgeConfigSpec.DoubleValue glidePowerSpeedPerLayer;
-        public final ForgeConfigSpec.DoubleValue alignmentSpeedMultiplier;
-        public final ForgeConfigSpec.DoubleValue retreatSpeedMultiplier;
-        public final ForgeConfigSpec.DoubleValue strikeSpeedMultiplier;
+        public final ForgeConfigSpec.DoubleValue verticalAlignmentSpeedMultiplier;
+        public final ForgeConfigSpec.DoubleValue edgeReturnSpeedMultiplier;
+        public final ForgeConfigSpec.DoubleValue perimeterPatrolSpeedMultiplier;
         public final ForgeConfigSpec.DoubleValue chainDashSpeedMultiplier;
 
         private SliderMovementConfig(ForgeConfigSpec.Builder builder) {
@@ -229,22 +242,24 @@ public final class BossRefactorAetherConfig {
                             "glide_power_speed_per_layer",
                             SliderMechanics.DEFAULT_GLIDE_POWER_SPEED_PER_LAYER,
                             0.0, 1.0);
-            alignmentSpeedMultiplier = defineSpeedMultiplier(
+            verticalAlignmentSpeedMultiplier = defineSpeedMultiplier(
                     builder,
-                    "alignment_speed_multiplier",
-                    SliderMechanics.DEFAULT_TACTICAL_ALIGN_SPEED_MULTIPLIER,
-                    "Multiplier while aligning an attack lane.", "对齐攻击路线时的速度倍率。");
-            retreatSpeedMultiplier = defineSpeedMultiplier(
+                    "vertical_alignment_speed_multiplier",
+                    SliderMechanics.DEFAULT_VERTICAL_ALIGN_SPEED_MULTIPLIER,
+                    "Multiplier while moving vertically into attack height.",
+                    "纵向移动到可攻击高度时的速度倍率。");
+            edgeReturnSpeedMultiplier = defineSpeedMultiplier(
                     builder,
-                    "retreat_speed_multiplier",
-                    SliderMechanics.DEFAULT_TACTICAL_RETREAT_SPEED_MULTIPLIER,
-                    "Multiplier while retreating to bait the player.",
-                    "后撤诱导玩家时的速度倍率。");
-            strikeSpeedMultiplier = defineSpeedMultiplier(
+                    "edge_return_speed_multiplier",
+                    SliderMechanics.DEFAULT_EDGE_RETURN_SPEED_MULTIPLIER,
+                    "Multiplier while moving to the nearest arena edge.",
+                    "移动到最近场地边缘时的速度倍率。");
+            perimeterPatrolSpeedMultiplier = defineSpeedMultiplier(
                     builder,
-                    "strike_speed_multiplier",
-                    SliderMechanics.DEFAULT_TACTICAL_STRIKE_SPEED_MULTIPLIER,
-                    "Multiplier for ordinary tactical strikes.", "普通战术冲撞速度倍率。");
+                    "perimeter_patrol_speed_multiplier",
+                    SliderMechanics.DEFAULT_PERIMETER_PATROL_SPEED_MULTIPLIER,
+                    "Multiplier while patrolling the square arena perimeter.",
+                    "沿方形场地边缘巡航时的速度倍率。");
             chainDashSpeedMultiplier = defineSpeedMultiplier(
                     builder,
                     "chain_dash_speed_multiplier",
@@ -259,12 +274,6 @@ public final class BossRefactorAetherConfig {
         public final ForgeConfigSpec.IntValue chargeTicks;
         public final ForgeConfigSpec.IntValue dashTickLimit;
         public final ForgeConfigSpec.IntValue dashIntervalTicks;
-        public final ForgeConfigSpec.IntValue alignTickLimit;
-        public final ForgeConfigSpec.IntValue retreatTickLimit;
-        public final ForgeConfigSpec.IntValue baitMinTicks;
-        public final ForgeConfigSpec.IntValue baitMaxTicks;
-        public final ForgeConfigSpec.IntValue recoveryTicks;
-        public final ForgeConfigSpec.IntValue strikeTickLimit;
 
         private SliderTimingConfig(ForgeConfigSpec.Builder builder) {
             builder.comment("Slider timing in ticks.", "滑行魔石时间参数，单位为 tick。")
@@ -278,36 +287,15 @@ public final class BossRefactorAetherConfig {
             dashIntervalTicks = defineInt(builder, "continuous_glide_interval_ticks",
                     SliderMechanics.DASH_INTERVAL_TICKS, 0, MAX_TICKS,
                     "Pause between dashes.", "连续冲刺之间的停顿时间。");
-            alignTickLimit = defineInt(builder, "alignment_tick_limit",
-                    SliderMechanics.TACTICAL_ALIGN_TICK_LIMIT, 1, MAX_TICKS,
-                    "Maximum alignment duration.", "对齐路线的最大时间。");
-            retreatTickLimit = defineInt(builder, "retreat_tick_limit",
-                    SliderMechanics.TACTICAL_RETREAT_TICK_LIMIT, 1, MAX_TICKS,
-                    "Maximum retreat duration.", "战术后撤的最大时间。");
-            baitMinTicks = defineInt(builder, "bait_min_ticks",
-                    SliderMechanics.TACTICAL_BAIT_MIN_TICKS, 0, MAX_TICKS,
-                    "Minimum visible bait/windup duration.", "最短诱导/前摇时间。");
-            baitMaxTicks = defineInt(builder, "bait_max_ticks",
-                    SliderMechanics.TACTICAL_BAIT_MAX_TICKS, 1, MAX_TICKS,
-                    "Maximum bait duration.", "最大诱导时间。");
-            recoveryTicks = defineInt(builder, "recovery_ticks",
-                    SliderMechanics.TACTICAL_RECOVERY_TICKS, 0, MAX_TICKS,
-                    "Recovery after an ordinary strike.", "普通冲撞后的恢复时间。");
-            strikeTickLimit = defineInt(builder, "strike_tick_limit",
-                    SliderMechanics.TACTICAL_STRIKE_TICK_LIMIT, 1, MAX_TICKS,
-                    "Maximum ordinary-strike duration.", "普通冲撞最大持续时间。");
             builder.pop();
         }
     }
 
     public static final class SliderRangeConfig {
         public final ForgeConfigSpec.DoubleValue continuousGlideDistance;
-        public final ForgeConfigSpec.DoubleValue laneHalfWidth;
-        public final ForgeConfigSpec.DoubleValue laneLeadTicks;
-        public final ForgeConfigSpec.DoubleValue maxLaneLead;
-        public final ForgeConfigSpec.DoubleValue retreatDistance;
-        public final ForgeConfigSpec.DoubleValue strikeDistance;
-        public final ForgeConfigSpec.DoubleValue alignmentTolerance;
+        public final ForgeConfigSpec.DoubleValue perimeterEdgeClearance;
+        public final ForgeConfigSpec.DoubleValue perimeterArrivalTolerance;
+        public final ForgeConfigSpec.DoubleValue verticalAlignmentTolerance;
 
         private SliderRangeConfig(ForgeConfigSpec.Builder builder) {
             builder.comment("Slider range and geometry.", "滑行魔石范围与几何参数。")
@@ -315,27 +303,37 @@ public final class BossRefactorAetherConfig {
             continuousGlideDistance = defineDistance(builder, "continuous_glide_distance",
                     SliderMechanics.DASH_DISTANCE_LIMIT, "Maximum dash distance.",
                     "连续滑行单次冲刺最大距离。");
-            laneHalfWidth = defineDistance(builder, "lane_half_width",
-                    SliderMechanics.TACTICAL_LANE_HALF_WIDTH, "Attack-lane half-width.",
-                    "攻击路线半宽。");
-            laneLeadTicks = defineDouble(builder, "lane_prediction_ticks",
-                    SliderMechanics.TACTICAL_LANE_LEAD_TICKS, 0.0, 200.0,
-                    "Target-motion prediction in ticks.", "目标移动预测提前量，单位为 tick。");
-            maxLaneLead = defineDistance(builder, "max_lane_prediction_distance",
-                    SliderMechanics.TACTICAL_MAX_LANE_LEAD, "Maximum lane prediction distance.",
-                    "攻击路线最大预测距离。");
-            retreatDistance = defineDistance(builder, "retreat_distance",
-                    SliderMechanics.TACTICAL_RETREAT_DISTANCE, "Desired retreat distance.",
-                    "希望后撤到的距离。");
-            strikeDistance = defineDistance(builder, "strike_distance",
-                    SliderMechanics.TACTICAL_STRIKE_DISTANCE_LIMIT,
-                    "Maximum ordinary-strike distance.", "普通冲撞最大距离。");
-            alignmentTolerance = defineDouble(builder, "alignment_tolerance",
-                    SliderMechanics.TACTICAL_ALIGNMENT_TOLERANCE, 0.0, 16.0,
-                    "Cross-axis alignment tolerance.", "横轴对齐容差。");
+            perimeterEdgeClearance = defineDistance(builder, "perimeter_edge_clearance",
+                    SliderMechanics.PERIMETER_EDGE_CLEARANCE,
+                    "Extra clearance between the Slider and arena walls.",
+                    "魔石与场地墙体之间的额外间距。");
+            perimeterArrivalTolerance = defineDistance(
+                    builder, "perimeter_arrival_tolerance",
+                    SliderMechanics.PERIMETER_ARRIVAL_TOLERANCE,
+                    "Distance used to accept an edge or corner as reached.",
+                    "判定到达场地边缘或角点的距离。");
+            verticalAlignmentTolerance = defineDistance(
+                    builder, "vertical_alignment_tolerance",
+                    SliderMechanics.VERTICAL_ALIGNMENT_TOLERANCE,
+                    "Allowed center-height difference after vertical alignment.",
+                    "纵向对齐完成后允许的中心高度差。");
             builder.pop();
         }
     }
+
+        public static final class SliderDisplayConfig {
+                public final ForgeConfigSpec.DoubleValue statusLabelHeightOffset;
+
+                private SliderDisplayConfig(ForgeConfigSpec.Builder builder) {
+                        builder.comment("Slider client display settings.", "滑行魔石客户端显示设置。")
+                                        .push("display");
+                        statusLabelHeightOffset = defineDouble(builder,
+                                        "status_label_height_offset", 1.35, 0.0, 8.0,
+                                        "Status-label height above the Slider's bounding box.",
+                                        "状态标签高于魔石碰撞箱顶部的高度。");
+                        builder.pop();
+                }
+        }
 
     public static final class ValkyrieQueenCombatConfig {
         public final ForgeConfigSpec.DoubleValue phaseTwoHealthRatio;
@@ -648,6 +646,181 @@ public final class BossRefactorAetherConfig {
                     "Maximum martial-skill start distance.", "武神技最大起手距离。");
             spearTriggerDistance = defineDistance(builder, "spear_trigger_distance", 22.0,
                     "Maximum Spear Throw start distance.", "长枪投掷最大起手距离。");
+            builder.pop();
+        }
+    }
+
+    public static final class SunSpiritCombatConfig {
+        public final ForgeConfigSpec.DoubleValue healthPerMinion;
+        public final ForgeConfigSpec.DoubleValue minionDamageMultiplier;
+        public final ForgeConfigSpec.DoubleValue reflectedIceHealthRatio;
+        public final ForgeConfigSpec.DoubleValue phaseTwoHealthRatio;
+        public final ForgeConfigSpec.DoubleValue phaseTwoDamageMultiplier;
+        public final ForgeConfigSpec.DoubleValue pursuitRange;
+        public final ForgeConfigSpec.IntValue minionsPerHealthThreshold;
+        public final ForgeConfigSpec.IntValue emptyFieldSummonCount;
+        public final ForgeConfigSpec.DoubleValue iceProjectileChance;
+        public final ForgeConfigSpec.DoubleValue knockbackResistance;
+        public final ForgeConfigSpec.DoubleValue minionKnockbackResistance;
+
+        private SunSpiritCombatConfig(ForgeConfigSpec.Builder builder) {
+            builder.comment("Core Sun Spirit combat rules.", "烈阳巨灵核心战斗规则。")
+                    .push("combat");
+            healthPerMinion = defineDouble(builder, "health_lost_per_minion",
+                    SunSpiritMechanics.HEALTH_THRESHOLD_RATIO, 0.01, 1.0,
+                    "Maximum-health ratio lost for each automatic minion summon.",
+                    "每次自动召唤一只仆从所需损失的最大生命比例。");
+            minionDamageMultiplier = defineDouble(builder, "minion_damage_multiplier",
+                    SunSpiritMechanics.MINION_DAMAGE_MULTIPLIER, 0.0, 1.0,
+                    "Incoming-damage multiplier while an owned minion is alive.",
+                    "存在所属仆从时受到的伤害倍率。");
+            reflectedIceHealthRatio = defineDouble(builder, "reflected_ice_health_ratio",
+                    SunSpiritMechanics.REFLECTED_ICE_HEALTH_RATIO, 0.0, 1.0,
+                    "Maximum-health ratio removed by a reflected Ice Crystal.",
+                    "反弹冰结球命中时扣除的最大生命比例。");
+            phaseTwoHealthRatio = defineDouble(builder, "phase_two_health_ratio",
+                    SunSpiritMechanics.PHASE_TWO_HEALTH_RATIO, 0.0, 1.0,
+                    "Phase-two health threshold ratio.", "二阶段生命比例阈值。");
+            phaseTwoDamageMultiplier = defineDouble(builder, "phase_two_damage_multiplier",
+                    SunSpiritMechanics.PHASE_TWO_DAMAGE_MULTIPLIER, 0.0, 100.0,
+                    "Damage multiplier in phase two.", "二阶段伤害倍率。");
+            pursuitRange = defineDistance(builder, "pursuit_range", 48.0,
+                    "Range used to acquire eligible players.", "主动锁定合格玩家的范围。");
+            minionsPerHealthThreshold = defineInt(builder,
+                    "minions_per_health_threshold", 1, 0, 20,
+                    "Minions summoned per crossed health threshold.",
+                    "每跨过一个生命阈值召唤的仆从数量。");
+            emptyFieldSummonCount = defineInt(builder, "empty_field_summon_count", 2,
+                    0, 20, "Minions summoned by the dedicated summon skill.",
+                    "场上无仆从时，专用召唤技能召唤的数量。");
+            iceProjectileChance = defineDouble(builder, "ice_projectile_chance", 0.5,
+                    0.0, 1.0, "Chance for a projectile attack to use an Ice Crystal.",
+                    "投射物攻击使用冰结球的概率。");
+            knockbackResistance = defineDouble(builder, "knockback_resistance", 1.0,
+                    0.0, 1.0, "Sun Spirit knockback resistance.",
+                    "烈阳巨灵击退抗性。");
+            minionKnockbackResistance = defineDouble(builder,
+                    "minion_knockback_resistance", 1.0, 0.0, 1.0,
+                    "Owned Fire Minion knockback resistance.",
+                    "所属烈焰仆从击退抗性。");
+            builder.pop();
+        }
+    }
+
+    public static final class SunSpiritDamageConfig {
+        public final DamageFormula projectile;
+        public final DamageFormula risingFlame;
+        public final DamageFormula flameSigil;
+        public final DamageFormula titanFist;
+
+        private SunSpiritDamageConfig(ForgeConfigSpec.Builder builder) {
+            builder.comment("Sun Spirit damage formulas.", "烈阳巨灵伤害公式。")
+                    .push("damage");
+            projectile = defineDamageFormula(builder, "projectile", 0.0, 1.0,
+                    "Rolling Fireball and Ice Crystal.", "滚炎球与冰结球。");
+            risingFlame = defineDamageFormula(builder, "rising_flame", 0.0, 1.5,
+                    "Rising Flame circular burst.", "烈焰升腾环形爆发。");
+            flameSigil = defineDamageFormula(builder, "flame_sigil", 0.0, 1.0,
+                    "Delayed flame sigil.", "延迟升起的烈焰法阵。");
+            titanFist = defineDamageFormula(builder, "titan_fist", 0.0, 1.2,
+                    "Titan Fist rectangle.", "巨神之拳矩形攻击。");
+            builder.pop();
+        }
+    }
+
+    public static final class SunSpiritTimingConfig {
+        public final ForgeConfigSpec.IntValue projectileWindupTicks;
+        public final ForgeConfigSpec.IntValue risingFlameWindupTicks;
+        public final ForgeConfigSpec.IntValue titanFistWindupTicks;
+        public final ForgeConfigSpec.IntValue summonWindupTicks;
+        public final ForgeConfigSpec.IntValue attackRecoveryTicks;
+        public final ForgeConfigSpec.IntValue summonRecoveryTicks;
+        public final ForgeConfigSpec.IntValue summonCooldownTicks;
+        public final ForgeConfigSpec.IntValue initialSummonDelayTicks;
+        public final ForgeConfigSpec.IntValue flameSigilDelayTicks;
+        public final ForgeConfigSpec.IntValue flameSeconds;
+        public final ForgeConfigSpec.IntValue shieldCooldownTicks;
+        public final ForgeConfigSpec.IntValue parryRecoveryTicks;
+        public final ForgeConfigSpec.IntValue phaseTwoSigilIntervalTicks;
+        public final ForgeConfigSpec.IntValue initialPhaseTwoSigilDelayTicks;
+
+        private SunSpiritTimingConfig(ForgeConfigSpec.Builder builder) {
+            builder.comment("Sun Spirit timing in ticks.", "烈阳巨灵时间参数，单位为 tick。")
+                    .push("timing");
+            projectileWindupTicks = defineInt(builder, "projectile_windup_ticks", 24,
+                    0, MAX_TICKS, "Projectile windup.", "滚炎球/冰结球前摇。");
+            risingFlameWindupTicks = defineInt(builder, "rising_flame_windup_ticks", 36,
+                    0, MAX_TICKS, "Rising Flame windup.", "烈焰升腾前摇。");
+            titanFistWindupTicks = defineInt(builder, "titan_fist_windup_ticks", 32,
+                    0, MAX_TICKS, "Titan Fist windup.", "巨神之拳前摇。");
+            summonWindupTicks = defineInt(builder, "summon_windup_ticks", 60,
+                    0, MAX_TICKS, "Distinct dedicated-summon windup.",
+                    "具有明显区别的专用召唤前摇。");
+            attackRecoveryTicks = defineInt(builder, "attack_recovery_ticks", 40,
+                    0, MAX_TICKS, "Recovery after ordinary skills.", "普通技能后摇。");
+            summonRecoveryTicks = defineInt(builder, "summon_recovery_ticks", 50,
+                    0, MAX_TICKS, "Recovery after summoning or interruption.",
+                    "召唤完成或被打断后的恢复时间。");
+            summonCooldownTicks = defineInt(builder, "summon_cooldown_ticks", 300,
+                    0, MAX_TICKS, "Dedicated summon cooldown.", "专用召唤技能冷却。");
+            initialSummonDelayTicks = defineInt(builder, "initial_summon_delay_ticks", 100,
+                    0, MAX_TICKS, "Initial dedicated-summon delay.", "专用召唤初始延迟。");
+            flameSigilDelayTicks = defineInt(builder, "flame_sigil_delay_ticks", 36,
+                    0, MAX_TICKS, "Delay before a flame sigil erupts.", "烈焰法阵喷发延迟。");
+            flameSeconds = defineInt(builder, "flame_seconds", 5,
+                    0, 300, "Fire duration after a sigil hit, in seconds.",
+                    "法阵命中后的点燃秒数。");
+            shieldCooldownTicks = defineInt(builder, "shield_cooldown_ticks", 100,
+                    0, MAX_TICKS, "Shield cooldown after blocking a heavy skill.",
+                    "格挡重型技能后的盾牌冷却。");
+            parryRecoveryTicks = defineInt(builder, "parry_recovery_ticks", 40,
+                    1, MAX_TICKS, "Recovery after a SlashBlade parry.",
+                    "被拔刀剑招架后的恢复时间。");
+            phaseTwoSigilIntervalTicks = defineInt(builder,
+                    "phase_two_sigil_interval_ticks", 160, 1, MAX_TICKS,
+                    "Interval between automatic phase-two flame sigils.",
+                    "二阶段自动烈焰法阵间隔。");
+            initialPhaseTwoSigilDelayTicks = defineInt(builder,
+                    "initial_phase_two_sigil_delay_ticks", 80, 0, MAX_TICKS,
+                    "Delay before the first automatic phase-two sigil.",
+                    "进入二阶段后首个自动法阵的延迟。");
+            builder.pop();
+        }
+    }
+
+    public static final class SunSpiritRangeConfig {
+        public final ForgeConfigSpec.DoubleValue projectileSpeed;
+        public final ForgeConfigSpec.DoubleValue risingFlameRadius;
+        public final ForgeConfigSpec.DoubleValue titanFistLength;
+        public final ForgeConfigSpec.DoubleValue titanFistHalfWidth;
+        public final ForgeConfigSpec.DoubleValue flameSigilRadius;
+        public final ForgeConfigSpec.DoubleValue verticalHitRange;
+        public final ForgeConfigSpec.DoubleValue summonRadius;
+        public final ForgeConfigSpec.DoubleValue summonTelegraphRadius;
+        public final ForgeConfigSpec.DoubleValue minionSearchRange;
+
+        private SunSpiritRangeConfig(ForgeConfigSpec.Builder builder) {
+            builder.comment("Sun Spirit ranges and projectile speed.",
+                            "烈阳巨灵范围与投射物速度。")
+                    .push("range");
+            projectileSpeed = defineSpeedMultiplier(builder, "projectile_speed", 1.1,
+                    "Fire and Ice Crystal launch speed.", "滚炎球与冰结球发射速度。");
+            risingFlameRadius = defineDistance(builder, "rising_flame_radius", 6.0,
+                    "Rising Flame radius.", "烈焰升腾半径。");
+            titanFistLength = defineDistance(builder, "titan_fist_length", 10.0,
+                    "Titan Fist forward length.", "巨神之拳前方长度。");
+            titanFistHalfWidth = defineDistance(builder, "titan_fist_half_width", 3.0,
+                    "Titan Fist rectangle half-width.", "巨神之拳矩形半宽。");
+            flameSigilRadius = defineDistance(builder, "flame_sigil_radius", 3.5,
+                    "Flame sigil radius.", "烈焰法阵半径。");
+            verticalHitRange = defineDistance(builder, "vertical_hit_range", 12.0,
+                    "Vertical hit range for direct skills.", "直接技能垂直命中范围。");
+            summonRadius = defineDistance(builder, "summon_radius", 4.0,
+                    "Minion spawn radius.", "仆从生成半径。");
+            summonTelegraphRadius = defineDistance(builder, "summon_telegraph_radius", 8.0,
+                    "Distinct summon-windup telegraph radius.", "专用召唤前摇提示半径。");
+            minionSearchRange = defineDistance(builder, "minion_search_range", 96.0,
+                    "Range used to count owned minions.", "统计所属仆从的范围。");
             builder.pop();
         }
     }

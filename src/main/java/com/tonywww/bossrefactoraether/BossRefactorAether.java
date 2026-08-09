@@ -5,6 +5,7 @@ import com.mojang.logging.LogUtils;
 import com.tonywww.bossrefactoraether.compat.OptionalCompatBootstrap;
 import com.tonywww.bossrefactoraether.config.BossRefactorAetherConfig;
 import com.tonywww.bossrefactoraether.slider.SliderMechanics;
+import com.tonywww.bossrefactoraether.sunspirit.SunSpiritMechanics;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.event.entity.EntityAttributeModificationEvent;
@@ -39,5 +40,7 @@ public class BossRefactorAether {
     private void modifyEntityAttributes(EntityAttributeModificationEvent event) {
         event.add(AetherEntityTypes.SLIDER.get(), Attributes.ATTACK_DAMAGE,
                 SliderMechanics.DEFAULT_ATTACK_DAMAGE);
+        event.add(AetherEntityTypes.SUN_SPIRIT.get(), Attributes.ATTACK_DAMAGE,
+            SunSpiritMechanics.DEFAULT_ATTACK_DAMAGE);
     }
 }

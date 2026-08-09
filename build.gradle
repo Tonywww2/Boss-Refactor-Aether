@@ -210,6 +210,14 @@ tasks.register('valkyrieQueenMechanicsTest', JavaExec) {
     mainClass = 'com.tonywww.bossrefactoraether.valkyriequeen.ValkyrieQueenMechanicsSelfTest'
 }
 
+tasks.register('sunSpiritMechanicsTest', JavaExec) {
+    group = 'verification'
+    description = 'Runs dependency-free Sun Spirit combat geometry checks.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.tonywww.bossrefactoraether.sunspirit.SunSpiritMechanicsSelfTest'
+}
+
 tasks.register('verifyOptionalSenDimsIsolation') {
     group = 'verification'
     description = 'Ensures only the delayed SenDimS compat package links against its API.'
@@ -228,8 +236,111 @@ tasks.register('verifyOptionalSenDimsIsolation') {
     }
 }
 
+tasks.register('verifySenDimsParryEffects') {
+    group = 'verification'
+    description = 'Ensures every parry-break attack reaches the SenDimS PARRIED effect path.'
+    def compatFile = file(
+            'src/main/java/com/tonywww/bossrefactoraether/compat/sendims/SenDimsSliderCompat.java')
+        def clientRendererFile = file(
+            'src/main/java/com/tonywww/bossrefactoraether/compat/sendims/client/ExternalLeaderStatusRenderer.java')
+    def combatFiles = [
+            file('src/main/java/com/tonywww/bossrefactoraether/slider/SliderCombatService.java'),
+            file('src/main/java/com/tonywww/bossrefactoraether/valkyriequeen/ValkyrieQueenCombatService.java'),
+            file('src/main/java/com/tonywww/bossrefactoraether/sunspirit/SunSpiritCombatService.java')
+    ]
+    inputs.files([compatFile, clientRendererFile] + combatFiles)
+    doLast {
+        def compat = compatFile.getText('UTF-8')
+        def requiredCompatContracts = [
+                'AetherEntityTypes.SLIDER.get()',
+                'AetherEntityTypes.VALKYRIE_QUEEN.get()',
+                'AetherEntityTypes.SUN_SPIRIT.get()',
+                'SliderParryIntegration.install(compat)',
+                'ValkyrieQueenParryIntegration.install(compat)',
+                'SunSpiritParryIntegration.install(compat)',
+                '@SubscribeEvent(priority = EventPriority.LOWEST)',
+                'event.setDecision(LeaderParryDecision.PARRY)',
+                'registerClientRenderer()',
+                'SunSpiritCombatService.acceptParry(sunSpirit)',
+                '.SUN_SPIRIT_TIMING.parryRecoveryTicks.get()',
+                'ValkyrieQueenCombatService.acceptParry(queen)',
+                '.VALKYRIE_QUEEN_TIMING.parryRecoveryTicks.get()',
+                'SliderCombatService.acceptParryWithoutBarrier(slider)',
+                'SliderCombatService.consumeBarrierFromParryAttempt(',
+                '? 1',
+                ': BossRefactorAetherConfig.SLIDER_COMBAT.stunTicks.get()'
+        ]
+        def missing = requiredCompatContracts.findAll { !compat.contains(it) }
+        if (!missing.isEmpty()) {
+            throw new GradleException(
+                    "SenDimS parry-effect contracts are missing: ${missing}")
+        }
+        if (compat.contains('LeaderParryDecision.ABSORB')) {
+            throw new GradleException(
+                    'Parry-break attacks must use SenDimS PARRY, not ABSORB')
+        }
+                if (compat.contains('sendParticles(')
+                    || compat.contains('DustParticleOptions')) {
+                    throw new GradleException(
+                        'Server-side warning particles would leave stale colors after cast')
+                }
+        def completeParryCalls = (compat =~ /completeParry\(event,/).count
+        if (completeParryCalls != 4) {
+            throw new GradleException(
+                "Expected four SenDimS completeParry paths, got ${completeParryCalls}")
+        }
+        def sliderService = combatFiles[0].getText('UTF-8')
+        def zeroBarrierStart = sliderService.indexOf(
+            'public static void acceptParryWithoutBarrier')
+        def zeroBarrierEnd = sliderService.indexOf(
+            'public static float barrierDamageMultiplier', zeroBarrierStart)
+        def zeroBarrierBody = zeroBarrierStart >= 0 && zeroBarrierEnd > zeroBarrierStart
+            ? sliderService.substring(zeroBarrierStart, zeroBarrierEnd)
+            : ''
+        if (!zeroBarrierBody.contains('applyLocalStun(slider)')) {
+            throw new GradleException(
+                'Zero-barrier Slider parries must enter the local break state')
+        }
+        def unsynchronized = combatFiles.findAll {
+            !it.getText('UTF-8').contains('synchronizeParryWindow(')
+        }
+        if (!unsynchronized.isEmpty()) {
+            throw new GradleException(
+                    "Parry-window synchronization is missing: ${unsynchronized}")
+        }
+        def clientRenderer = clientRendererFile.getText('UTF-8')
+        def requiredClientContracts = [
+                'Component.literal("危")',
+                'snapshot.get().profile() != LeaderProfile.EXTERNAL',
+                'snapshot.get().phase() != LeaderPhase.PARRYABLE',
+                'ParryIndicatorStyle.isVisible(true, telegraph)',
+                'dangerArgb(telegraph.progress())',
+                'ParryIndicatorStyle.red(progress)',
+                'ParryIndicatorStyle.greenBlue(progress)',
+                'clearIndicatorRings()',
+                'warningTelegraph(entity).ifPresent(',
+                'createIndicatorRing(minecraft, entity, telegraph.progress())',
+                'particle.setLifetime(2)',
+                'particle.remove()',
+                'clearIndicatorRing(entity.getId())',
+                'entity instanceof Slider',
+                'entity instanceof ValkyrieQueen',
+                'entity instanceof SunSpirit'
+        ]
+        def missingClientContracts = requiredClientContracts.findAll {
+            !clientRenderer.contains(it)
+        }
+        if (!missingClientContracts.isEmpty()) {
+            throw new GradleException(
+                    "SenDimS danger-character contracts are missing: ${missingClientContracts}")
+        }
+    }
+}
+
 tasks.named('check').configure {
     dependsOn tasks.named('sliderMechanicsTest')
     dependsOn tasks.named('valkyrieQueenMechanicsTest')
+    dependsOn tasks.named('sunSpiritMechanicsTest')
     dependsOn tasks.named('verifyOptionalSenDimsIsolation')
+    dependsOn tasks.named('verifySenDimsParryEffects')
 }

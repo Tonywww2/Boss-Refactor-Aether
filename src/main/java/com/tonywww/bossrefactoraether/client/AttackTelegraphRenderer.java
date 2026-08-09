@@ -87,7 +87,7 @@ public final class AttackTelegraphRenderer {
             PoseStack poseStack, MultiBufferSource.BufferSource buffers,
             RenderType outlineType, Entity entity, AttackTelegraph telegraph) {
         Vec3 direction = horizontalDirection(telegraph);
-        Vec3 origin = telegraphOrigin(entity);
+        Vec3 origin = telegraphOrigin(entity, telegraph);
         switch (telegraph.shape()) {
             case ARC -> renderArc(poseStack, buffers, outlineType, origin, direction,
                     telegraph.length(), telegraph.width());
@@ -111,7 +111,7 @@ public final class AttackTelegraphRenderer {
         private static void renderTelegraphFill(PoseStack poseStack, VertexConsumer consumer,
                             Entity entity, AttackTelegraph telegraph) {
         Vec3 direction = horizontalDirection(telegraph);
-        Vec3 origin = telegraphOrigin(entity);
+        Vec3 origin = telegraphOrigin(entity, telegraph);
         int alpha = fillAlpha(telegraph.progress());
         switch (telegraph.shape()) {
             case ARC -> fillArc(poseStack, consumer, origin, direction,
@@ -247,12 +247,15 @@ public final class AttackTelegraphRenderer {
             : direction.normalize();
         }
 
-        private static Vec3 telegraphOrigin(Entity entity) {
-        return new Vec3(
-            entity.getX(),
-            entity.getY() + BossRefactorAetherConfig.ATTACK_TELEGRAPH
-                .heightOffset.get(),
-            entity.getZ());
+        private static Vec3 telegraphOrigin(Entity entity, AttackTelegraph telegraph) {
+        double heightOffset = BossRefactorAetherConfig.ATTACK_TELEGRAPH
+            .heightOffset.get();
+        if (telegraph.hasLockedOrigin()) {
+            return new Vec3(
+                telegraph.originX(), telegraph.originY() + heightOffset,
+                telegraph.originZ());
+        }
+        return new Vec3(entity.getX(), entity.getY() + heightOffset, entity.getZ());
         }
 
         private static int fillAlpha(float progress) {

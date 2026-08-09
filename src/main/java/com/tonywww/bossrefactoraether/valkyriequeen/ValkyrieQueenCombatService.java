@@ -110,6 +110,7 @@ public final class ValkyrieQueenCombatService {
             case SPEAR_RETRIEVE -> tickSpearRetrieve(queen, state);
             case RECOVERY -> tickRecovery(queen, state);
         }
+        synchronizeParryWindow(queen, state);
     }
 
     public static void reset(ValkyrieQueen queen) {
@@ -149,11 +150,7 @@ public final class ValkyrieQueenCombatService {
     }
 
     public static boolean isCurrentAttackParryable(ValkyrieQueen queen) {
-        return switch (state(queen).attackPhase) {
-            case SKILL_ONE_CHARGE, SKILL_ONE_FIRE,
-                    SKILL_TWO_CHARGE, SKILL_TWO_DASH -> true;
-            default -> false;
-        };
+        return state(queen).attackPhase.isParryBreak();
     }
 
     public static void acceptParry(ValkyrieQueen queen) {
@@ -254,7 +251,7 @@ public final class ValkyrieQueenCombatService {
             return;
         }
         if (distance <= maximumBasicRange) {
-            startBasicAttack(queen, state);
+            startBasicAttack(queen, target, state);
         } else {
             if (approachTarget(queen, target, state) == ApproachResult.TIMED_OUT) {
                 startNextSkill(queen, state, gameTime);
@@ -270,19 +267,22 @@ public final class ValkyrieQueenCombatService {
         state.basicsSinceSkill = 0;
         resetApproach(state);
         if (ValkyrieQueenMechanics.shouldUseSkillOne(state.skillIndex++)) {
-            startSkillOne(queen, state);
+            startSkillOne(queen, validTarget(queen), state);
         } else {
-            startSkillTwo(queen, state);
+            startSkillTwo(queen, validTarget(queen), state);
         }
     }
 
     private static void startBasicAttack(ValkyrieQueen queen,
+                                         LivingEntity target,
                                          ValkyrieQueenCombatState state) {
         state.basicAttack = ValkyrieQueenMechanics.basicAttackForIndex(state.basicIndex++);
         state.attackPhase = ValkyrieQueenAttackPhase.BASIC_WINDUP;
         state.phaseTicks = 0;
         stopMovement(queen);
-        setTelegraph(queen, AttackTelegraphShape.ARC, horizontalLook(queen),
+        lockAttack(queen, target, state, basicRange(state.basicAttack));
+        setTelegraph(queen, AttackTelegraphShape.ARC,
+            state.attackOrigin, state.attackDirection,
             basicRange(state.basicAttack),
             basicHalfAngle(state.basicAttack), 0.0);
     }
@@ -291,12 +291,7 @@ public final class ValkyrieQueenCombatService {
                                         ValkyrieQueenCombatState state) {
         stopMovement(queen);
         faceTarget(queen, target);
-        Vec3 attackDirection = horizontalDirection(
-            queen.position(), target.position(), queen);
-        setTelegraph(queen, AttackTelegraphShape.ARC,
-            attackDirection,
-            basicRange(state.basicAttack), basicHalfAngle(state.basicAttack), 0.0,
-            AttackTelegraph.windupProgress(
+        updateTelegraphProgress(queen, AttackTelegraph.windupProgress(
                 state.phaseTicks,
                 BossRefactorAetherConfig.VALKYRIE_QUEEN_TIMING
                     .basicWindupTicks.get()));
@@ -312,14 +307,17 @@ public final class ValkyrieQueenCombatService {
         damageArc(
                 queen,
                 state.basicAttack,
-            attackDirection,
+            state.attackOrigin,
+            state.attackDirection,
             basicDamageFormula(state.basicAttack));
         emitBasicSlash(queen, state.basicAttack);
         state.basicsSinceSkill++;
         if (state.phaseTwo) {
             state.attackPhase = ValkyrieQueenAttackPhase.BASIC_LANCE_SPIN;
             state.phaseTicks = 0;
-                setTelegraph(queen, AttackTelegraphShape.CIRCLE, horizontalLook(queen),
+            state.attackOrigin = queen.position();
+                setTelegraph(queen, AttackTelegraphShape.CIRCLE,
+                    state.attackOrigin, horizontalLook(queen),
                     0.0, 0.0,
                     BossRefactorAetherConfig.VALKYRIE_QUEEN_RANGE
                         .basicLanceSpinRadius.get());
@@ -335,35 +333,37 @@ public final class ValkyrieQueenCombatService {
         state.phaseTicks++;
         double spinRadius = BossRefactorAetherConfig.VALKYRIE_QUEEN_RANGE
             .basicLanceSpinRadius.get();
-        setTelegraph(queen, AttackTelegraphShape.CIRCLE, horizontalLook(queen),
-            0.0, 0.0, spinRadius,
-            AttackTelegraph.windupProgress(
+        updateTelegraphProgress(queen, AttackTelegraph.windupProgress(
                 state.phaseTicks,
                 BossRefactorAetherConfig.VALKYRIE_QUEEN_TIMING
                     .spinWindupTicks.get()));
-        emitSpinTelegraph(queen, spinRadius);
+        emitSpinTelegraph(queen, state.attackOrigin, spinRadius);
         if (state.phaseTicks >= BossRefactorAetherConfig.VALKYRIE_QUEEN_TIMING
             .spinWindupTicks.get()) {
             queen.swing(InteractionHand.OFF_HAND);
             damageRadius(
                     queen,
-                    queen.position(),
+                    state.attackOrigin,
                     spinRadius,
                     BossRefactorAetherConfig.VALKYRIE_QUEEN_DAMAGE.basicLanceSpin,
                     true);
-            emitSpinAttack(queen, spinRadius);
+            emitSpinAttack(queen, state.attackOrigin, spinRadius);
                 enterRecovery(queen, state, BossRefactorAetherConfig.VALKYRIE_QUEEN_TIMING
                     .basicRecoveryTicks.get());
         }
     }
 
     private static void startSkillOne(ValkyrieQueen queen,
+                                      @Nullable LivingEntity target,
                                       ValkyrieQueenCombatState state) {
         state.attackPhase = ValkyrieQueenAttackPhase.SKILL_ONE_CHARGE;
         state.phaseTicks = 0;
         stopMovement(queen);
         openParryWindow(queen, state);
-        setTelegraph(queen, AttackTelegraphShape.CORRIDOR, horizontalLook(queen),
+        lockAttack(queen, target, state,
+                BossRefactorAetherConfig.VALKYRIE_QUEEN_RANGE.swordWaveDistance.get());
+        setTelegraph(queen, AttackTelegraphShape.CORRIDOR,
+            state.attackOrigin, state.attackDirection,
             BossRefactorAetherConfig.VALKYRIE_QUEEN_RANGE.swordWaveDistance.get(),
             BossRefactorAetherConfig.VALKYRIE_QUEEN_RANGE.swordWaveHitRadius.get(),
             0.0);
@@ -373,12 +373,7 @@ public final class ValkyrieQueenCombatService {
                                            ValkyrieQueenCombatState state) {
         stopMovement(queen);
         faceTarget(queen, target);
-        setTelegraph(queen, AttackTelegraphShape.CORRIDOR,
-            horizontalDirection(queen.position(), target.position(), queen),
-            BossRefactorAetherConfig.VALKYRIE_QUEEN_RANGE.swordWaveDistance.get(),
-            BossRefactorAetherConfig.VALKYRIE_QUEEN_RANGE.swordWaveHitRadius.get(),
-            0.0,
-            AttackTelegraph.windupProgress(
+        updateTelegraphProgress(queen, AttackTelegraph.windupProgress(
                 state.phaseTicks,
                 BossRefactorAetherConfig.VALKYRIE_QUEEN_TIMING
                     .skillOneWindupTicks.get()));
@@ -388,7 +383,7 @@ public final class ValkyrieQueenCombatService {
             .skillOneWindupTicks.get()) {
             state.attackPhase = ValkyrieQueenAttackPhase.SKILL_ONE_FIRE;
             state.phaseTicks = 0;
-            spawnSwordWave(queen, target);
+            spawnSwordWave(queen, state.attackOrigin, state.attackDirection);
             clearTelegraph(queen);
         }
     }
@@ -400,7 +395,7 @@ public final class ValkyrieQueenCombatService {
         state.phaseTicks++;
         if (state.phaseTicks == BossRefactorAetherConfig.VALKYRIE_QUEEN_TIMING
             .swordWaveGapTicks.get()) {
-            spawnSwordWave(queen, target);
+            spawnSwordWave(queen, state.attackOrigin, state.attackDirection);
         }
         if (state.phaseTicks < BossRefactorAetherConfig.VALKYRIE_QUEEN_TIMING
             .skillOneFireTicks.get()) {
@@ -410,7 +405,7 @@ public final class ValkyrieQueenCombatService {
         if (queen.getRandom().nextDouble()
                 < BossRefactorAetherConfig.VALKYRIE_QUEEN_COMBAT
                     .skillOneChainChance.get()) {
-            startSkillTwo(queen, state);
+            startSkillTwo(queen, target, state);
         } else {
             closeParryWindow(queen, state);
                 enterRecovery(queen, state, BossRefactorAetherConfig.VALKYRIE_QUEEN_TIMING
@@ -419,12 +414,16 @@ public final class ValkyrieQueenCombatService {
     }
 
     private static void startSkillTwo(ValkyrieQueen queen,
+                                      @Nullable LivingEntity target,
                                       ValkyrieQueenCombatState state) {
         state.attackPhase = ValkyrieQueenAttackPhase.SKILL_TWO_CHARGE;
         state.phaseTicks = 0;
         stopMovement(queen);
         openParryWindow(queen, state);
-        setTelegraph(queen, AttackTelegraphShape.CORRIDOR, horizontalLook(queen),
+        lockAttack(queen, target, state,
+                BossRefactorAetherConfig.VALKYRIE_QUEEN_RANGE.dashDistance.get());
+        setTelegraph(queen, AttackTelegraphShape.CORRIDOR,
+            state.attackOrigin, state.attackDirection,
             BossRefactorAetherConfig.VALKYRIE_QUEEN_RANGE.dashDistance.get(),
             queen.getBbWidth() * 0.7
                 + BossRefactorAetherConfig.VALKYRIE_QUEEN_RANGE
@@ -436,17 +435,10 @@ public final class ValkyrieQueenCombatService {
                                            ValkyrieQueenCombatState state) {
         stopMovement(queen);
         faceTarget(queen, target);
-        setTelegraph(queen, AttackTelegraphShape.CORRIDOR,
-            horizontalDirection(queen.position(), target.position(), queen),
-            BossRefactorAetherConfig.VALKYRIE_QUEEN_RANGE.dashDistance.get(),
-            queen.getBbWidth() * 0.7
-                + BossRefactorAetherConfig.VALKYRIE_QUEEN_RANGE
-                    .dashHitInflation.get(),
-            0.0,
-            AttackTelegraph.windupProgress(
+        updateTelegraphProgress(queen, AttackTelegraph.windupProgress(
                     state.phaseTicks,
                     BossRefactorAetherConfig.VALKYRIE_QUEEN_TIMING
-                            .skillTwoWindupTicks.get()));
+                    .skillTwoWindupTicks.get()));
         state.phaseTicks++;
         emitChargeParticles(queen, true);
         if (state.phaseTicks < BossRefactorAetherConfig.VALKYRIE_QUEEN_TIMING
@@ -457,7 +449,7 @@ public final class ValkyrieQueenCombatService {
         state.attackPhase = ValkyrieQueenAttackPhase.SKILL_TWO_DASH;
         state.phaseTicks = 0;
         state.dashStart = queen.position();
-        state.dashDirection = horizontalDirection(queen.position(), target.position(), queen);
+        state.dashDirection = state.attackDirection;
         state.dashHits.clear();
         clearTelegraph(queen);
         queen.level().playSound(null, queen.blockPosition(), SoundEvents.TRIDENT_RIPTIDE_3,
@@ -497,7 +489,9 @@ public final class ValkyrieQueenCombatService {
             state.phaseTicks = 0;
             stopMovement(queen);
             equipLance(queen);
-                setTelegraph(queen, AttackTelegraphShape.CIRCLE, horizontalLook(queen),
+            state.attackOrigin = queen.position();
+                setTelegraph(queen, AttackTelegraphShape.CIRCLE,
+                    state.attackOrigin, horizontalLook(queen),
                     0.0, 0.0,
                     BossRefactorAetherConfig.VALKYRIE_QUEEN_RANGE
                         .skillTwoSpinRadius.get());
@@ -510,23 +504,21 @@ public final class ValkyrieQueenCombatService {
         state.phaseTicks++;
         double spinRadius = BossRefactorAetherConfig.VALKYRIE_QUEEN_RANGE
             .skillTwoSpinRadius.get();
-        setTelegraph(queen, AttackTelegraphShape.CIRCLE, horizontalLook(queen),
-            0.0, 0.0, spinRadius,
-            AttackTelegraph.windupProgress(
+        updateTelegraphProgress(queen, AttackTelegraph.windupProgress(
                 state.phaseTicks,
                 BossRefactorAetherConfig.VALKYRIE_QUEEN_TIMING
                     .spinWindupTicks.get()));
-        emitSpinTelegraph(queen, spinRadius);
+        emitSpinTelegraph(queen, state.attackOrigin, spinRadius);
         if (state.phaseTicks >= BossRefactorAetherConfig.VALKYRIE_QUEEN_TIMING
             .spinWindupTicks.get()) {
             queen.swing(InteractionHand.OFF_HAND);
             damageRadius(
                     queen,
-                    queen.position(),
+                    state.attackOrigin,
                     spinRadius,
                     BossRefactorAetherConfig.VALKYRIE_QUEEN_DAMAGE.skillTwoSpin,
                     true);
-            emitSpinAttack(queen, spinRadius);
+            emitSpinAttack(queen, state.attackOrigin, spinRadius);
             if (!state.phaseTwo) {
                 clearLance(queen);
             }
@@ -552,11 +544,13 @@ public final class ValkyrieQueenCombatService {
                     .spearSpeed.get()
                     * BossRefactorAetherConfig.VALKYRIE_QUEEN_TIMING
                         .spearFlightTicks.get());
+            lockAttack(queen, target, state, corridorLength);
             setTelegraph(
                 queen,
                 AttackTelegraphShape.CORRIDOR_WITH_END_CIRCLE,
-                horizontalDirection(queen.position(), target.position(), queen),
-                corridorLength,
+                state.attackOrigin,
+                state.attackDirection,
+                state.attackLength,
                 0.65,
                 BossRefactorAetherConfig.VALKYRIE_QUEEN_RANGE
                     .spearImpactRadius.get());
@@ -567,16 +561,7 @@ public final class ValkyrieQueenCombatService {
                                         ValkyrieQueenCombatState state) {
         stopMovement(queen);
         faceTarget(queen, target);
-        double corridorLength = Math.min(
-            horizontalDistance(queen.position(), target.position()),
-            BossRefactorAetherConfig.VALKYRIE_QUEEN_RANGE.spearSpeed.get()
-                * BossRefactorAetherConfig.VALKYRIE_QUEEN_TIMING
-                    .spearFlightTicks.get());
-        setTelegraph(queen, AttackTelegraphShape.CORRIDOR_WITH_END_CIRCLE,
-            horizontalDirection(queen.position(), target.position(), queen),
-            corridorLength, 0.65,
-            BossRefactorAetherConfig.VALKYRIE_QUEEN_RANGE.spearImpactRadius.get(),
-            AttackTelegraph.windupProgress(
+        updateTelegraphProgress(queen, AttackTelegraph.windupProgress(
                 state.phaseTicks,
                 BossRefactorAetherConfig.VALKYRIE_QUEEN_TIMING
                     .spearWindupTicks.get()));
@@ -584,17 +569,16 @@ public final class ValkyrieQueenCombatService {
         emitSpearChargeParticles(queen);
         if (state.phaseTicks >= BossRefactorAetherConfig.VALKYRIE_QUEEN_TIMING
             .spearWindupTicks.get()) {
-            launchSpear(queen, target, state);
+            launchSpear(queen, state);
         }
     }
 
-    private static void launchSpear(ValkyrieQueen queen, LivingEntity target,
+    private static void launchSpear(ValkyrieQueen queen,
                                     ValkyrieQueenCombatState state) {
         ServerLevel level = (ServerLevel) queen.level();
         clearLance(queen);
         state.spearPosition = queen.getEyePosition().add(0.0, -0.3, 0.0);
-        state.spearDirection = horizontalDirection(
-                state.spearPosition, target.getEyePosition(), queen);
+        state.spearDirection = state.attackDirection;
         state.spearDistance = 0.0;
         state.phaseTicks = 0;
 
@@ -646,9 +630,8 @@ public final class ValkyrieQueenCombatService {
         level.sendParticles(ParticleTypes.ELECTRIC_SPARK,
                 next.x, next.y, next.z, 5, 0.15, 0.15, 0.15, 0.02);
 
-        boolean reachedTargetColumn = horizontalDistance(next, target.position()) <= 1.5
-            && isWithinAttackHeight(next.y, target, 1.5);
-        if (hitBlock || reachedTargetColumn
+        boolean reachedLockedEndpoint = state.spearDistance >= state.attackLength;
+        if (hitBlock || reachedLockedEndpoint
                 || state.phaseTicks >= BossRefactorAetherConfig.VALKYRIE_QUEEN_TIMING
                     .spearFlightTicks.get()) {
             impactSpear(queen, state);
@@ -727,6 +710,7 @@ public final class ValkyrieQueenCombatService {
         state.recoveryTicks = ticks;
         state.dashHits.clear();
         resetApproach(state);
+        clearAttackSnapshot(state);
         clearTelegraph(queen);
         stopMovement(queen);
     }
@@ -773,10 +757,10 @@ public final class ValkyrieQueenCombatService {
         }
     }
 
-    private static void spawnSwordWave(ValkyrieQueen queen, LivingEntity target) {
+    private static void spawnSwordWave(ValkyrieQueen queen, Vec3 attackOrigin,
+                                       Vec3 direction) {
         ValkyrieQueenCombatState state = state(queen);
-        Vec3 direction = horizontalDirection(queen.position(), target.position(), queen);
-        Vec3 origin = queen.position().add(direction.scale(0.9)).add(0.0, 1.0, 0.0);
+        Vec3 origin = attackOrigin.add(direction.scale(0.9)).add(0.0, 1.0, 0.0);
         state.swordWaves.add(new ValkyrieQueenSwordWave(origin, direction));
         queen.swing(InteractionHand.MAIN_HAND);
         queen.level().playSound(null, queen.blockPosition(), SoundEvents.PLAYER_ATTACK_SWEEP,
@@ -822,22 +806,23 @@ public final class ValkyrieQueenCombatService {
 
     private static void damageArc(ValkyrieQueen queen,
                                   ValkyrieQueenBasicAttack attack,
+                                  Vec3 origin,
                                   Vec3 forward,
                                   BossRefactorAetherConfig.DamageFormula formula) {
         double radius = basicRange(attack);
         double upwardRange = BossRefactorAetherConfig.VALKYRIE_QUEEN_RANGE
             .meleeVerticalTolerance.get();
-        AABB bounds = attackBounds(queen.position(), radius, upwardRange);
+        AABB bounds = attackBounds(origin, radius, upwardRange);
         for (Player player : eligiblePlayers(queen, bounds)) {
-                if (isWithinAttackHeight(queen.getY(), player, upwardRange)
+                if (isWithinAttackHeight(origin.y, player, upwardRange)
                     && queen.hasLineOfSight(player)
                     && ValkyrieQueenMechanics.isInHorizontalArc(
-                            queen.position(),
+                            origin,
                             forward,
                             player.position(),
                             radius,
                             basicHalfAngle(attack))) {
-                dealAttackDamage(queen, player, formula, queen.position(), true);
+                dealAttackDamage(queen, player, formula, origin, true);
             }
         }
     }
@@ -970,6 +955,15 @@ public final class ValkyrieQueenCombatService {
         }
     }
 
+    private static void synchronizeParryWindow(ValkyrieQueen queen,
+                                                ValkyrieQueenCombatState state) {
+        if (isCurrentAttackParryable(queen)) {
+            openParryWindow(queen, state);
+        } else {
+            closeParryWindow(queen, state);
+        }
+    }
+
     private static void cancelActiveAttack(ValkyrieQueen queen,
                                            ValkyrieQueenCombatState state) {
         clearTelegraph(queen);
@@ -988,6 +982,7 @@ public final class ValkyrieQueenCombatService {
         state.dashHits.clear();
         cleanupSpearEntities(queen);
         state.spearEntityId = null;
+        clearAttackSnapshot(state);
         if (state.phaseTwo) {
             equipLance(queen);
         }
@@ -1323,30 +1318,32 @@ public final class ValkyrieQueenCombatService {
                 SoundSource.HOSTILE, 1.2F, 0.8F);
     }
 
-    private static void emitSpinTelegraph(ValkyrieQueen queen, double radius) {
+    private static void emitSpinTelegraph(ValkyrieQueen queen, Vec3 center,
+                                          double radius) {
         if (!(queen.level() instanceof ServerLevel level) || queen.tickCount % 2 != 0) {
             return;
         }
         for (int index = 0; index < 12; index++) {
             double angle = Math.PI * 2.0 * index / 12.0;
             level.sendParticles(ParticleTypes.CRIT,
-                    queen.getX() + Math.cos(angle) * radius,
-                    queen.getY() + 0.2,
-                    queen.getZ() + Math.sin(angle) * radius,
+                    center.x + Math.cos(angle) * radius,
+                    center.y + 0.2,
+                    center.z + Math.sin(angle) * radius,
                     1, 0.05, 0.05, 0.05, 0.0);
         }
     }
 
-    private static void emitSpinAttack(ValkyrieQueen queen, double radius) {
+    private static void emitSpinAttack(ValkyrieQueen queen, Vec3 center,
+                                       double radius) {
         if (!(queen.level() instanceof ServerLevel level)) {
             return;
         }
         for (int index = 0; index < 24; index++) {
             double angle = Math.PI * 2.0 * index / 24.0;
             level.sendParticles(ParticleTypes.SWEEP_ATTACK,
-                    queen.getX() + Math.cos(angle) * radius * 0.75,
-                    queen.getY() + 0.8,
-                    queen.getZ() + Math.sin(angle) * radius * 0.75,
+                    center.x + Math.cos(angle) * radius * 0.75,
+                    center.y + 0.8,
+                    center.z + Math.sin(angle) * radius * 0.75,
                     1, 0.15, 0.1, 0.15, 0.0);
         }
         level.playSound(null, queen.blockPosition(), SoundEvents.PLAYER_ATTACK_SWEEP,
@@ -1367,15 +1364,16 @@ public final class ValkyrieQueenCombatService {
         }
     }
 
-    private static void setTelegraph(ValkyrieQueen queen, AttackTelegraphShape shape,
-                                     Vec3 direction, double length,
-                                     double width, double radius) {
-        setTelegraph(queen, shape, direction, length, width, radius, 0.0F);
-    }
+        private static void setTelegraph(ValkyrieQueen queen, AttackTelegraphShape shape,
+                         Vec3 origin, Vec3 direction, double length,
+                         double width, double radius) {
+        setTelegraph(queen, shape, origin, direction,
+            length, width, radius, 0.0F);
+        }
 
-    private static void setTelegraph(ValkyrieQueen queen, AttackTelegraphShape shape,
-                                     Vec3 direction, double length,
-                                     double width, double radius, float progress) {
+        private static void setTelegraph(ValkyrieQueen queen, AttackTelegraphShape shape,
+                         Vec3 origin, Vec3 direction, double length,
+                         double width, double radius, float progress) {
         Vec3 horizontal = new Vec3(direction.x, 0.0, direction.z);
         if (horizontal.lengthSqr() < 1.0E-8) {
             horizontal = horizontalLook(queen);
@@ -1386,6 +1384,9 @@ public final class ValkyrieQueenCombatService {
             access.bossRefactorAether$setAttackTelegraph(
                 new AttackTelegraph(
                     shape,
+                    (float) origin.x,
+                    (float) origin.y,
+                    (float) origin.z,
                     (float) horizontal.x,
                     (float) horizontal.z,
                     (float) Math.max(0.0, length),
@@ -1393,6 +1394,33 @@ public final class ValkyrieQueenCombatService {
                             (float) Math.max(0.0, radius),
                             progress));
         }
+    }
+
+    private static void updateTelegraphProgress(ValkyrieQueen queen, float progress) {
+        if (queen instanceof AttackTelegraphAccess access) {
+            AttackTelegraph telegraph = access.bossRefactorAether$getAttackTelegraph();
+            if (telegraph.shape() != AttackTelegraphShape.NONE) {
+                access.bossRefactorAether$setAttackTelegraph(
+                        telegraph.withProgress(progress));
+            }
+        }
+    }
+
+    private static void lockAttack(ValkyrieQueen queen,
+                                   @Nullable LivingEntity target,
+                                   ValkyrieQueenCombatState state,
+                                   double length) {
+        state.attackOrigin = queen.position();
+        state.attackDirection = target == null
+                ? horizontalLook(queen)
+                : horizontalDirection(state.attackOrigin, target.position(), queen);
+        state.attackLength = Math.max(0.0, length);
+    }
+
+    private static void clearAttackSnapshot(ValkyrieQueenCombatState state) {
+        state.attackOrigin = Vec3.ZERO;
+        state.attackDirection = new Vec3(0.0, 0.0, 1.0);
+        state.attackLength = 0.0;
     }
 
     private static void clearTelegraph(ValkyrieQueen queen) {

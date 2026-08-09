@@ -20,13 +20,11 @@ public final class SliderCombatState {
     long stunEnd;
 
     SliderMovementPhase movementPhase = SliderMovementPhase.IDLE;
-    Direction.Axis attackAxis = Direction.Axis.X;
-    double laneCoordinate;
-    double tacticalDirection;
+    SliderMovementPhase resumeMovementPhase = SliderMovementPhase.RETURNING_TO_EDGE;
+    Direction perimeterEdge = Direction.NORTH;
+    boolean patrolClockwise;
+    boolean patrolDirectionInitialized;
     int movementTicks;
-    Vec3 tacticalStart = Vec3.ZERO;
-    boolean normalMoveActive;
-    boolean normalMoveHit;
     boolean skillQueued;
     SliderSkillPhase skillPhase = SliderSkillPhase.IDLE;
     int phaseTicks;
@@ -59,8 +57,30 @@ public final class SliderCombatState {
         return skillPhase != SliderSkillPhase.IDLE;
     }
 
+    boolean hasArenaMovementState() {
+        return movementPhase != SliderMovementPhase.IDLE
+                || patrolDirectionInitialized
+                || skillQueued
+                || isSkillActive()
+                || parryWindowOpen;
+    }
+
+    void resetSkillTransient() {
+        skillQueued = false;
+        skillPhase = SliderSkillPhase.IDLE;
+        phaseTicks = 0;
+        completedDashes = 0;
+        totalDashes = 0;
+        extraDashDecided = false;
+        currentDashParryable = false;
+        parryWindowOpen = false;
+        dashDirection = Vec3.ZERO;
+        dashStart = Vec3.ZERO;
+        dashHits.clear();
+    }
+
     public boolean isCurrentAttackParryable() {
-        return (movementPhase == SliderMovementPhase.STRIKING && normalMoveActive)
+        return (skillPhase == SliderSkillPhase.CHARGING && currentDashParryable)
             || (skillPhase == SliderSkillPhase.DASHING && currentDashParryable);
     }
 
@@ -115,24 +135,12 @@ public final class SliderCombatState {
 
     public void resetTransient() {
         movementPhase = SliderMovementPhase.IDLE;
-        attackAxis = Direction.Axis.X;
-        laneCoordinate = 0.0;
-        tacticalDirection = 0.0;
+        resumeMovementPhase = SliderMovementPhase.RETURNING_TO_EDGE;
+        perimeterEdge = Direction.NORTH;
+        patrolClockwise = false;
+        patrolDirectionInitialized = false;
         movementTicks = 0;
-        tacticalStart = Vec3.ZERO;
-        normalMoveActive = false;
-        normalMoveHit = false;
-        skillQueued = false;
-        skillPhase = SliderSkillPhase.IDLE;
-        phaseTicks = 0;
-        completedDashes = 0;
-        totalDashes = 0;
-        extraDashDecided = false;
-        currentDashParryable = false;
-        parryWindowOpen = false;
-        dashDirection = Vec3.ZERO;
-        dashStart = Vec3.ZERO;
-        dashHits.clear();
+        resetSkillTransient();
         shieldBlockGameTime = Long.MIN_VALUE;
         shieldBlockPlayers.clear();
         chargedPickaxeGameTime = Long.MIN_VALUE;

@@ -1,10 +1,9 @@
 package com.tonywww.bossrefactoraether.mixin;
 
-import com.aetherteam.aether.entity.monster.dungeon.AbstractValkyrie;
-import com.aetherteam.aether.entity.monster.dungeon.boss.ValkyrieQueen;
-import com.tonywww.bossrefactoraether.valkyriequeen.ValkyrieQueenCombatService;
-import com.tonywww.bossrefactoraether.valkyriequeen.ValkyrieQueenCombatState;
-import com.tonywww.bossrefactoraether.valkyriequeen.ValkyrieQueenStateAccess;
+import com.aetherteam.aether.entity.monster.dungeon.boss.SunSpirit;
+import com.tonywww.bossrefactoraether.sunspirit.SunSpiritCombatService;
+import com.tonywww.bossrefactoraether.sunspirit.SunSpiritCombatState;
+import com.tonywww.bossrefactoraether.sunspirit.SunSpiritStateAccess;
 import com.tonywww.bossrefactoraether.telegraph.AttackTelegraph;
 import com.tonywww.bossrefactoraether.telegraph.AttackTelegraphAccess;
 import com.tonywww.bossrefactoraether.telegraph.AttackTelegraphShape;
@@ -12,62 +11,61 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
-import net.minecraft.world.entity.Entity;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.ai.goal.MeleeAttackGoal;
-import net.minecraft.world.entity.ai.goal.WaterAvoidingRandomStrollGoal;
+import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.level.Level;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-@Mixin(ValkyrieQueen.class)
-public abstract class ValkyrieQueenMixin extends AbstractValkyrie
-    implements ValkyrieQueenStateAccess, AttackTelegraphAccess {
+@Mixin(SunSpirit.class)
+public abstract class SunSpiritMixin extends PathfinderMob
+    implements SunSpiritStateAccess, AttackTelegraphAccess {
     @Unique
     private static final EntityDataAccessor<Integer> BOSS_REFACTOR_AETHER$TELEGRAPH_SHAPE =
-        SynchedEntityData.defineId(ValkyrieQueen.class, EntityDataSerializers.INT);
+        SynchedEntityData.defineId(SunSpirit.class, EntityDataSerializers.INT);
     @Unique
     private static final EntityDataAccessor<Float> BOSS_REFACTOR_AETHER$TELEGRAPH_DIRECTION_X =
-        SynchedEntityData.defineId(ValkyrieQueen.class, EntityDataSerializers.FLOAT);
+        SynchedEntityData.defineId(SunSpirit.class, EntityDataSerializers.FLOAT);
     @Unique
     private static final EntityDataAccessor<Float> BOSS_REFACTOR_AETHER$TELEGRAPH_DIRECTION_Z =
-        SynchedEntityData.defineId(ValkyrieQueen.class, EntityDataSerializers.FLOAT);
+        SynchedEntityData.defineId(SunSpirit.class, EntityDataSerializers.FLOAT);
     @Unique
     private static final EntityDataAccessor<Float> BOSS_REFACTOR_AETHER$TELEGRAPH_LENGTH =
-        SynchedEntityData.defineId(ValkyrieQueen.class, EntityDataSerializers.FLOAT);
+        SynchedEntityData.defineId(SunSpirit.class, EntityDataSerializers.FLOAT);
     @Unique
     private static final EntityDataAccessor<Float> BOSS_REFACTOR_AETHER$TELEGRAPH_WIDTH =
-        SynchedEntityData.defineId(ValkyrieQueen.class, EntityDataSerializers.FLOAT);
+        SynchedEntityData.defineId(SunSpirit.class, EntityDataSerializers.FLOAT);
     @Unique
     private static final EntityDataAccessor<Float> BOSS_REFACTOR_AETHER$TELEGRAPH_RADIUS =
-        SynchedEntityData.defineId(ValkyrieQueen.class, EntityDataSerializers.FLOAT);
+        SynchedEntityData.defineId(SunSpirit.class, EntityDataSerializers.FLOAT);
     @Unique
     private static final EntityDataAccessor<Float> BOSS_REFACTOR_AETHER$TELEGRAPH_PROGRESS =
-        SynchedEntityData.defineId(ValkyrieQueen.class, EntityDataSerializers.FLOAT);
+        SynchedEntityData.defineId(SunSpirit.class, EntityDataSerializers.FLOAT);
     @Unique
     private static final EntityDataAccessor<Float> BOSS_REFACTOR_AETHER$TELEGRAPH_ORIGIN_X =
-        SynchedEntityData.defineId(ValkyrieQueen.class, EntityDataSerializers.FLOAT);
+        SynchedEntityData.defineId(SunSpirit.class, EntityDataSerializers.FLOAT);
     @Unique
     private static final EntityDataAccessor<Float> BOSS_REFACTOR_AETHER$TELEGRAPH_ORIGIN_Y =
-        SynchedEntityData.defineId(ValkyrieQueen.class, EntityDataSerializers.FLOAT);
+        SynchedEntityData.defineId(SunSpirit.class, EntityDataSerializers.FLOAT);
     @Unique
     private static final EntityDataAccessor<Float> BOSS_REFACTOR_AETHER$TELEGRAPH_ORIGIN_Z =
-        SynchedEntityData.defineId(ValkyrieQueen.class, EntityDataSerializers.FLOAT);
+        SynchedEntityData.defineId(SunSpirit.class, EntityDataSerializers.FLOAT);
     @Unique
-    private ValkyrieQueenCombatState bossRefactorAether$valkyrieQueenCombatState;
+    private SunSpiritCombatState bossRefactorAether$sunSpiritCombatState;
 
-    protected ValkyrieQueenMixin(
-            EntityType<? extends AbstractValkyrie> entityType, Level level) {
+    protected SunSpiritMixin(EntityType<? extends PathfinderMob> entityType, Level level) {
         super(entityType, level);
     }
 
     @Inject(method = "defineSynchedData", at = @At("TAIL"))
     private void bossRefactorAether$defineTelegraphData(CallbackInfo callback) {
-        SynchedEntityData data = ((ValkyrieQueen) (Object) this).getEntityData();
+        SynchedEntityData data = getEntityData();
         data.define(BOSS_REFACTOR_AETHER$TELEGRAPH_SHAPE,
                 AttackTelegraphShape.NONE.ordinal());
         data.define(BOSS_REFACTOR_AETHER$TELEGRAPH_DIRECTION_X, 0.0F);
@@ -82,57 +80,83 @@ public abstract class ValkyrieQueenMixin extends AbstractValkyrie
     }
 
     @Inject(method = "registerGoals", at = @At("TAIL"))
-    private void bossRefactorAether$replaceCombatGoals(CallbackInfo callback) {
-        this.goalSelector.removeAllGoals(goal ->
-                goal instanceof AbstractValkyrie.ValkyrieTeleportGoal
-                        || goal instanceof AbstractValkyrie.LungeGoal
-                        || goal instanceof ValkyrieQueen.ThunderCrystalAttackGoal
-                        || goal instanceof MeleeAttackGoal
-                        || goal instanceof WaterAvoidingRandomStrollGoal);
+    private void bossRefactorAether$replaceGoals(CallbackInfo callback) {
+        this.goalSelector.removeAllGoals(goal -> true);
+        this.targetSelector.removeAllGoals(goal -> true);
+    }
+
+    @Redirect(
+        method = "tick",
+        at = @At(
+            value = "INVOKE",
+            target = "Lcom/aetherteam/aether/entity/monster/dungeon/boss/SunSpirit;burnEntities()V",
+            remap = false))
+    private void bossRefactorAether$disableContactBurn(SunSpirit sunSpirit) {
+    }
+
+    @Redirect(
+        method = "customServerAiStep",
+        at = @At(
+            value = "INVOKE",
+            target = "Lcom/aetherteam/aether/entity/monster/dungeon/boss/SunSpirit;checkIceCrystals()V",
+            remap = false))
+    private void bossRefactorAether$disableOriginalIceCheck(SunSpirit sunSpirit) {
     }
 
     @Inject(method = "tick", at = @At("TAIL"))
     private void bossRefactorAether$tickCombat(CallbackInfo callback) {
-        ValkyrieQueenCombatService.tick((ValkyrieQueen) (Object) this);
+        SunSpiritCombatService.tick((SunSpirit) (Object) this);
     }
 
-    @Inject(method = "doHurtTarget", at = @At("HEAD"), cancellable = true)
-    private void bossRefactorAether$suppressOriginalMelee(
-            Entity target, CallbackInfoReturnable<Boolean> callback) {
-        callback.setReturnValue(false);
+    @Inject(method = "hurt", at = @At("HEAD"), cancellable = true)
+    private void bossRefactorAether$replaceDamageHandling(
+            DamageSource source, float amount,
+            CallbackInfoReturnable<Boolean> callback) {
+        SunSpirit sunSpirit = (SunSpirit) (Object) this;
+        float adjusted = SunSpiritCombatService.adjustedIncomingDamage(
+                sunSpirit, source, amount);
+        boolean hurt = super.hurt(source, adjusted);
+        SunSpiritCombatService.onDamaged(sunSpirit, source, hurt);
+        callback.setReturnValue(hurt);
+    }
+
+    @Inject(method = "isInvulnerableTo", at = @At("HEAD"), cancellable = true)
+    private void bossRefactorAether$removeSpecialInvulnerability(
+            DamageSource source, CallbackInfoReturnable<Boolean> callback) {
+        callback.setReturnValue(super.isInvulnerableTo(source));
     }
 
     @Inject(method = "reset", at = @At("TAIL"), remap = false)
     private void bossRefactorAether$resetCombat(CallbackInfo callback) {
-        ValkyrieQueenCombatService.reset((ValkyrieQueen) (Object) this);
+        SunSpiritCombatService.reset((SunSpirit) (Object) this);
     }
 
     @Inject(method = "addAdditionalSaveData", at = @At("TAIL"))
     private void bossRefactorAether$saveCombat(CompoundTag tag, CallbackInfo callback) {
-        ValkyrieQueen queen = (ValkyrieQueen) (Object) this;
-        bossRefactorAether$getValkyrieQueenCombatState().write(
-                tag, queen.level().getGameTime());
+        SunSpirit sunSpirit = (SunSpirit) (Object) this;
+        bossRefactorAether$getSunSpiritCombatState().write(
+                tag, sunSpirit.level().getGameTime());
     }
 
     @Inject(method = "readAdditionalSaveData", at = @At("TAIL"))
     private void bossRefactorAether$loadCombat(CompoundTag tag, CallbackInfo callback) {
-        ValkyrieQueen queen = (ValkyrieQueen) (Object) this;
-        bossRefactorAether$getValkyrieQueenCombatState().read(
-                tag, queen.level().getGameTime());
-        ValkyrieQueenCombatService.onLoaded(queen);
+        SunSpirit sunSpirit = (SunSpirit) (Object) this;
+        bossRefactorAether$getSunSpiritCombatState().read(
+                tag, sunSpirit.level().getGameTime());
+        SunSpiritCombatService.onLoaded(sunSpirit);
     }
 
     @Override
-    public ValkyrieQueenCombatState bossRefactorAether$getValkyrieQueenCombatState() {
-        if (bossRefactorAether$valkyrieQueenCombatState == null) {
-            bossRefactorAether$valkyrieQueenCombatState = new ValkyrieQueenCombatState();
+    public SunSpiritCombatState bossRefactorAether$getSunSpiritCombatState() {
+        if (bossRefactorAether$sunSpiritCombatState == null) {
+            bossRefactorAether$sunSpiritCombatState = new SunSpiritCombatState();
         }
-        return bossRefactorAether$valkyrieQueenCombatState;
+        return bossRefactorAether$sunSpiritCombatState;
     }
 
     @Override
     public AttackTelegraph bossRefactorAether$getAttackTelegraph() {
-        SynchedEntityData data = ((ValkyrieQueen) (Object) this).getEntityData();
+        SynchedEntityData data = getEntityData();
         return new AttackTelegraph(
                 AttackTelegraphShape.byId(data.get(BOSS_REFACTOR_AETHER$TELEGRAPH_SHAPE)),
             data.get(BOSS_REFACTOR_AETHER$TELEGRAPH_ORIGIN_X),
@@ -148,7 +172,7 @@ public abstract class ValkyrieQueenMixin extends AbstractValkyrie
 
     @Override
     public void bossRefactorAether$setAttackTelegraph(AttackTelegraph telegraph) {
-        SynchedEntityData data = ((ValkyrieQueen) (Object) this).getEntityData();
+        SynchedEntityData data = getEntityData();
         data.set(BOSS_REFACTOR_AETHER$TELEGRAPH_SHAPE, telegraph.shape().ordinal());
         data.set(BOSS_REFACTOR_AETHER$TELEGRAPH_DIRECTION_X, telegraph.directionX());
         data.set(BOSS_REFACTOR_AETHER$TELEGRAPH_DIRECTION_Z, telegraph.directionZ());

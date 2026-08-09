@@ -11,6 +11,10 @@ public final class SliderBlockTags {
             Registries.BLOCK,
             ResourceLocation.fromNamespaceAndPath(
                     BossRefactorAether.MOD_ID, "slider_unbreakable"));
+    public static final TagKey<Block> FORCE_BREAKABLE = TagKey.create(
+        Registries.BLOCK,
+        ResourceLocation.fromNamespaceAndPath(
+            BossRefactorAether.MOD_ID, "slider_force_breakable"));
 
     private SliderBlockTags() {
     }

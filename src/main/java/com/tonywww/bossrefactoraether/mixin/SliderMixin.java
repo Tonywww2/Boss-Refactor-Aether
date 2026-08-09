@@ -24,7 +24,9 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Coerce;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
@@ -59,6 +61,15 @@ public abstract class SliderMixin implements SliderStateAccess, AttackTelegraphA
             @Unique
             private static final EntityDataAccessor<Float> BOSS_REFACTOR_AETHER$TELEGRAPH_PROGRESS =
                 SynchedEntityData.defineId(Slider.class, EntityDataSerializers.FLOAT);
+        @Unique
+        private static final EntityDataAccessor<Float> BOSS_REFACTOR_AETHER$TELEGRAPH_ORIGIN_X =
+            SynchedEntityData.defineId(Slider.class, EntityDataSerializers.FLOAT);
+        @Unique
+        private static final EntityDataAccessor<Float> BOSS_REFACTOR_AETHER$TELEGRAPH_ORIGIN_Y =
+            SynchedEntityData.defineId(Slider.class, EntityDataSerializers.FLOAT);
+        @Unique
+        private static final EntityDataAccessor<Float> BOSS_REFACTOR_AETHER$TELEGRAPH_ORIGIN_Z =
+            SynchedEntityData.defineId(Slider.class, EntityDataSerializers.FLOAT);
 
     @Shadow(remap = false)
     @Final
@@ -89,6 +100,9 @@ public abstract class SliderMixin implements SliderStateAccess, AttackTelegraphA
         slider.getEntityData().define(BOSS_REFACTOR_AETHER$TELEGRAPH_WIDTH, 0.0F);
         slider.getEntityData().define(BOSS_REFACTOR_AETHER$TELEGRAPH_RADIUS, 0.0F);
         slider.getEntityData().define(BOSS_REFACTOR_AETHER$TELEGRAPH_PROGRESS, 0.0F);
+        slider.getEntityData().define(BOSS_REFACTOR_AETHER$TELEGRAPH_ORIGIN_X, Float.NaN);
+        slider.getEntityData().define(BOSS_REFACTOR_AETHER$TELEGRAPH_ORIGIN_Y, Float.NaN);
+        slider.getEntityData().define(BOSS_REFACTOR_AETHER$TELEGRAPH_ORIGIN_Z, Float.NaN);
     }
 
     @Inject(method = "tick", at = @At("TAIL"))
@@ -100,6 +114,16 @@ public abstract class SliderMixin implements SliderStateAccess, AttackTelegraphA
             bossRefactorAether$statusTitleInitialized = true;
             bossRefactorAether$refreshBossTitle();
         }
+    }
+
+    @Redirect(
+            method = "customServerAiStep",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lcom/aetherteam/aether/entity/monster/dungeon/boss/Slider;trackDungeon()V",
+                    remap = false))
+    private void bossRefactorAether$trackDungeonWithoutRoomReset(@Coerce Object slider) {
+        SliderCombatService.trackDungeonWithoutRoomReset((Slider) slider);
     }
 
     @Inject(method = "addAdditionalSaveData", at = @At("TAIL"))
@@ -138,24 +162,11 @@ public abstract class SliderMixin implements SliderStateAccess, AttackTelegraphA
                 && projectile.getOwner() instanceof LivingEntity owner) {
             attacker = owner;
         }
-        if (attacker == null || (slider.getDungeon() != null
-                && !slider.getDungeon().isPlayerWithinRoomInterior(attacker))) {
+        if (attacker == null) {
             callback.setReturnValue(Optional.empty());
             return;
         }
         callback.setReturnValue(Optional.of(attacker));
-    }
-
-    @Inject(method = "getVelocityIncrease", at = @At("RETURN"), cancellable = true, remap = false)
-    private void bossRefactorAether$scaleAcceleration(CallbackInfoReturnable<Float> callback) {
-        callback.setReturnValue((float) (callback.getReturnValue()
-                * SliderCombatService.movementMultiplier((Slider) (Object) this)));
-    }
-
-    @Inject(method = "getMaxVelocity", at = @At("RETURN"), cancellable = true, remap = false)
-    private void bossRefactorAether$scaleMaxVelocity(CallbackInfoReturnable<Float> callback) {
-        callback.setReturnValue((float) (callback.getReturnValue()
-                * SliderCombatService.movementMultiplier((Slider) (Object) this)));
     }
 
     @Inject(method = "setBossName", at = @At("TAIL"), remap = false)
@@ -227,6 +238,9 @@ public abstract class SliderMixin implements SliderStateAccess, AttackTelegraphA
         SynchedEntityData data = ((Slider) (Object) this).getEntityData();
         return new AttackTelegraph(
                 AttackTelegraphShape.byId(data.get(BOSS_REFACTOR_AETHER$TELEGRAPH_SHAPE)),
+            data.get(BOSS_REFACTOR_AETHER$TELEGRAPH_ORIGIN_X),
+            data.get(BOSS_REFACTOR_AETHER$TELEGRAPH_ORIGIN_Y),
+            data.get(BOSS_REFACTOR_AETHER$TELEGRAPH_ORIGIN_Z),
                 data.get(BOSS_REFACTOR_AETHER$TELEGRAPH_DIRECTION_X),
                 data.get(BOSS_REFACTOR_AETHER$TELEGRAPH_DIRECTION_Z),
                 data.get(BOSS_REFACTOR_AETHER$TELEGRAPH_LENGTH),
@@ -245,5 +259,8 @@ public abstract class SliderMixin implements SliderStateAccess, AttackTelegraphA
         data.set(BOSS_REFACTOR_AETHER$TELEGRAPH_WIDTH, telegraph.width());
         data.set(BOSS_REFACTOR_AETHER$TELEGRAPH_RADIUS, telegraph.radius());
         data.set(BOSS_REFACTOR_AETHER$TELEGRAPH_PROGRESS, telegraph.progress());
+        data.set(BOSS_REFACTOR_AETHER$TELEGRAPH_ORIGIN_X, telegraph.originX());
+        data.set(BOSS_REFACTOR_AETHER$TELEGRAPH_ORIGIN_Y, telegraph.originY());
+        data.set(BOSS_REFACTOR_AETHER$TELEGRAPH_ORIGIN_Z, telegraph.originZ());
     }
 }

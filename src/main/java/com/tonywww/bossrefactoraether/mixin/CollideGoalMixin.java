@@ -23,12 +23,16 @@ public abstract class CollideGoalMixin {
 
     @Inject(method = "canUse", at = @At("HEAD"), cancellable = true)
     private void bossRefactorAether$suppressCollision(CallbackInfoReturnable<Boolean> callback) {
-        callback.setReturnValue(false);
+        if (SliderCombatService.shouldOverrideOriginalMovement(slider)) {
+            callback.setReturnValue(false);
+        }
     }
 
     @Inject(method = "tick", at = @At("HEAD"), cancellable = true)
     private void bossRefactorAether$stopCollision(CallbackInfo callback) {
-        callback.cancel();
+        if (SliderCombatService.shouldOverrideOriginalMovement(slider)) {
+            callback.cancel();
+        }
     }
 
     @Redirect(
@@ -44,11 +48,7 @@ public abstract class CollideGoalMixin {
                 && SliderCombatService.tryShieldBlock(player, slider, source)) {
             return false;
         }
-        boolean damaged = entity.hurt(
+        return entity.hurt(
             source, SliderCombatService.normalCollisionDamage(slider, amount));
-        if (damaged && entity instanceof Player) {
-            SliderCombatService.markNormalMoveHit(slider);
-        }
-        return damaged;
     }
 }

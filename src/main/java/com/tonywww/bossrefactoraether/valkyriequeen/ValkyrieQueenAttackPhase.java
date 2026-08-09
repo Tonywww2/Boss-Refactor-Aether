@@ -1,16 +1,26 @@
 package com.tonywww.bossrefactoraether.valkyriequeen;
 
 enum ValkyrieQueenAttackPhase {
-    IDLE,
-    BASIC_WINDUP,
-    BASIC_LANCE_SPIN,
-    SKILL_ONE_CHARGE,
-    SKILL_ONE_FIRE,
-    SKILL_TWO_CHARGE,
-    SKILL_TWO_DASH,
-    SKILL_TWO_SPIN,
-    SPEAR_CHARGE,
-    SPEAR_FLIGHT,
-    SPEAR_RETRIEVE,
-    RECOVERY
+    IDLE(false),
+    BASIC_WINDUP(false),
+    BASIC_LANCE_SPIN(false),
+    SKILL_ONE_CHARGE(true),
+    SKILL_ONE_FIRE(true),
+    SKILL_TWO_CHARGE(true),
+    SKILL_TWO_DASH(true),
+    SKILL_TWO_SPIN(false),
+    SPEAR_CHARGE(false),
+    SPEAR_FLIGHT(false),
+    SPEAR_RETRIEVE(false),
+    RECOVERY(false);
+
+    private final boolean parryBreak;
+
+    ValkyrieQueenAttackPhase(boolean parryBreak) {
+        this.parryBreak = parryBreak;
+    }
+
+    boolean isParryBreak() {
+        return parryBreak;
+    }
 }

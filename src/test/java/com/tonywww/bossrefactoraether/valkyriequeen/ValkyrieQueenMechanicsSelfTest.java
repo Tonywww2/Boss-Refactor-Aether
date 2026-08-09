@@ -33,6 +33,7 @@ public final class ValkyrieQueenMechanicsSelfTest {
                 "the second martial skill must be skill two");
         check(ValkyrieQueenMechanics.shouldUseSkillOne(2),
                 "martial skills must alternate instead of repeating randomly");
+        verifyParryBreakPhases();
 
         Vec3 origin = Vec3.ZERO;
         Vec3 forward = new Vec3(0.0, 0.0, 1.0);
@@ -72,6 +73,29 @@ public final class ValkyrieQueenMechanicsSelfTest {
         checkClose(ValkyrieQueenMechanics.SPEAR_THROW_DAMAGE_MULTIPLIER, 1.5,
                 "thrown spear must deal one hundred fifty percent attack damage");
         verifyPersistence();
+    }
+
+    private static void verifyParryBreakPhases() {
+        check(ValkyrieQueenAttackPhase.SKILL_ONE_CHARGE.isParryBreak(),
+                "skill one windup must open the SenDimS parry-break window");
+        check(ValkyrieQueenAttackPhase.SKILL_ONE_FIRE.isParryBreak(),
+                "skill one execution must retain the SenDimS parry-break window");
+        check(ValkyrieQueenAttackPhase.SKILL_TWO_CHARGE.isParryBreak(),
+                "skill two windup must open the SenDimS parry-break window");
+        check(ValkyrieQueenAttackPhase.SKILL_TWO_DASH.isParryBreak(),
+                "skill two dash must retain the SenDimS parry-break window");
+        check(!ValkyrieQueenAttackPhase.BASIC_WINDUP.isParryBreak(),
+                "basic attacks must not be promoted to parry-break attacks");
+        check(!ValkyrieQueenAttackPhase.RECOVERY.isParryBreak(),
+                "recovery must close the SenDimS parry-break window");
+        int parryBreakPhases = 0;
+        for (ValkyrieQueenAttackPhase phase : ValkyrieQueenAttackPhase.values()) {
+            if (phase.isParryBreak()) {
+                parryBreakPhases++;
+            }
+        }
+        check(parryBreakPhases == 4,
+                "the Queen must expose exactly four parry-break phases");
     }
 
     private static void verifyFlankingGeometry() {

@@ -35,6 +35,9 @@ public final class ValkyrieQueenCombatState {
     int flankMovementTicks;
     boolean flankReady;
     Vec3 flankPosition = Vec3.ZERO;
+    Vec3 attackOrigin = Vec3.ZERO;
+    Vec3 attackDirection = new Vec3(0.0, 0.0, 1.0);
+    double attackLength;
     Vec3 dashDirection = Vec3.ZERO;
     Vec3 dashStart = Vec3.ZERO;
     final Set<UUID> dashHits = new HashSet<>();
@@ -81,6 +84,9 @@ public final class ValkyrieQueenCombatState {
         flankMovementTicks = 0;
         flankReady = false;
         flankPosition = Vec3.ZERO;
+        attackOrigin = Vec3.ZERO;
+        attackDirection = new Vec3(0.0, 0.0, 1.0);
+        attackLength = 0.0;
         dashDirection = Vec3.ZERO;
         dashStart = Vec3.ZERO;
         dashHits.clear();

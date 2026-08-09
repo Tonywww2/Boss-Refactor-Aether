@@ -2,9 +2,7 @@ package com.tonywww.bossrefactoraether.slider;
 
 enum SliderMovementPhase {
     IDLE,
-    ALIGNING,
-    RETREATING,
-    BAITING,
-    STRIKING,
-    RECOVERING
+    RETURNING_TO_EDGE,
+    PATROLLING,
+    VERTICAL_ALIGNING
 }
