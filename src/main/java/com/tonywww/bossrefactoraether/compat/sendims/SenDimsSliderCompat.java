@@ -32,8 +32,8 @@ import javax.annotation.Nullable;
 
 public final class SenDimsSliderCompat
     implements SliderParryBridge, ValkyrieQueenParryBridge, SunSpiritParryBridge {
-    private static final String CLIENT_RENDERER =
-            "com.tonywww.bossrefactoraether.compat.sendims.client.ExternalLeaderStatusRenderer";
+    private static final String CLIENT_INDICATOR_PROVIDER =
+            "com.tonywww.bossrefactoraether.compat.sendims.client.ExternalLeaderIndicatorProvider";
 
     private SenDimsSliderCompat() {
     }
@@ -63,19 +63,19 @@ public final class SenDimsSliderCompat
         SunSpiritParryIntegration.install(compat);
         MinecraftForge.EVENT_BUS.register(compat);
         if (FMLEnvironment.dist == Dist.CLIENT) {
-            registerClientRenderer();
+            registerClientIndicatorProvider();
         }
         BossRefactorAether.LOGGER.info(
             "Enabled SlashBlade SenDimS Slider, Valkyrie Queen, and Sun Spirit integration");
     }
 
-    private static void registerClientRenderer() {
+    private static void registerClientIndicatorProvider() {
         try {
-            Class<?> renderer = Class.forName(CLIENT_RENDERER);
-            renderer.getMethod("register").invoke(null);
+            Class<?> provider = Class.forName(CLIENT_INDICATOR_PROVIDER);
+            provider.getMethod("register").invoke(null);
         } catch (ReflectiveOperationException exception) {
             BossRefactorAether.LOGGER.error(
-                    "Unable to register SenDimS external Leader status renderer",
+                    "Unable to register SenDimS external Leader indicator provider",
                     exception);
         }
     }
@@ -152,17 +152,20 @@ public final class SenDimsSliderCompat
             return;
         }
 
+        int parryRecoveryTicks = BossRefactorAetherConfig
+            .SLIDER_COMBAT.parryRecoveryTicks.get();
         int previousLayers = SliderCombatService.state(slider).getBarrierLayers();
         if (previousLayers <= 0) {
             SliderCombatService.acceptParryWithoutBarrier(slider);
-            completeParry(event, BossRefactorAetherConfig.SLIDER_COMBAT.stunTicks.get());
+            completeParry(event, parryRecoveryTicks);
             return;
         }
         int remaining = SliderCombatService.consumeBarrierFromParryAttempt(
             slider, event.getActor());
         completeParry(event, remaining > 0
-            ? 1
-            : BossRefactorAetherConfig.SLIDER_COMBAT.stunTicks.get());
+            ? parryRecoveryTicks
+            : Math.max(parryRecoveryTicks,
+                BossRefactorAetherConfig.SLIDER_COMBAT.stunTicks.get()));
     }
 
     private static void completeParry(LeaderParryAttemptEvent event, int ticks) {

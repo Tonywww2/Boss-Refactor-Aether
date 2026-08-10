@@ -8,7 +8,6 @@ import com.tonywww.bossrefactoraether.mixin.LivingEntityDamageBlockAccessor;
 import com.tonywww.bossrefactoraether.telegraph.AttackTelegraph;
 import com.tonywww.bossrefactoraether.telegraph.AttackTelegraphAccess;
 import com.tonywww.bossrefactoraether.telegraph.AttackTelegraphShape;
-import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.DustParticleOptions;
@@ -27,11 +26,8 @@ import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.phys.shapes.VoxelShape;
-import net.minecraftforge.event.ForgeEventFactory;
 
 import javax.annotation.Nullable;
 import java.util.HashSet;
@@ -56,15 +52,21 @@ public final class SliderCombatService {
     }
 
     public static double movementMultiplier(Slider slider) {
+        return movementMultiplier(
+                slider, state(slider).phaseTwo, glidePower(slider));
+    }
+
+    private static double movementMultiplier(
+            Slider slider, boolean phaseTwo, int glidePower) {
         BossRefactorAetherConfig.SliderMovementConfig movement =
-            BossRefactorAetherConfig.SLIDER_MOVEMENT;
+                BossRefactorAetherConfig.SLIDER_MOVEMENT;
         return SliderMechanics.speedMultiplier(
-            state(slider).phaseTwo,
-            glidePower(slider),
-            BossRefactorAetherConfig.SLIDER_COMBAT.maxGlidePower.get(),
-            movement.baseSpeedMultiplier.get(),
-            movement.phaseTwoSpeedMultiplier.get(),
-            movement.glidePowerSpeedPerLayer.get());
+                phaseTwo,
+                glidePower,
+                BossRefactorAetherConfig.SLIDER_COMBAT.maxGlidePower.get(),
+                movement.baseSpeedMultiplier.get(),
+                movement.phaseTwoSpeedMultiplier.get(),
+                movement.glidePowerSpeedPerLayer.get());
     }
 
     public static boolean isStunned(Slider slider) {
@@ -75,13 +77,14 @@ public final class SliderCombatService {
         return state(slider).isCurrentAttackParryable();
     }
 
-    public static boolean shouldOverrideOriginalMovement(Slider slider) {
-        SliderCombatState state = state(slider);
-        return SliderMechanics.shouldOverrideOriginalMovement(
-            slider.isAwake(),
-            slider.getDungeon() != null,
-            isStunned(slider),
-            state.isSkillActive());
+    public static void ensureArena(Slider slider) {
+        if (slider.getDungeon() == null) {
+            state(slider).initializeStandaloneArena(slider.position());
+        }
+    }
+
+    public static boolean hasArena(Slider slider) {
+        return slider.getDungeon() != null || state(slider).hasStandaloneArena();
     }
 
     public static void trackDungeonWithoutRoomReset(Slider slider) {
@@ -89,62 +92,11 @@ public final class SliderCombatService {
             return;
         }
         slider.getDungeon().trackPlayers();
-    }
-
-    public static void destroyBlocksAlongMovement(Slider slider) {
-        if (!(slider.level() instanceof ServerLevel level)
-                || slider.isDeadOrDying()
-                || !shouldBreakBlocksAlongMovement(slider)) {
-            return;
-        }
-
-        Vec3 movement = slider.getDeltaMovement();
-        boolean mobGriefingAllowed = ForgeEventFactory.getMobGriefingEvent(level, slider);
-        boolean blockBreakingAllowed = SliderMechanics.isBlockBreakingAllowed(
+        if (SliderMechanics.shouldResetEmptyBossRoom(
                 slider.isBossFight(),
-                mobGriefingAllowed,
-                BossRefactorAetherConfig.SLIDER_COMBAT
-                    .blockBreakIgnoresMobGriefing.get());
-        if (!blockBreakingAllowed) {
-            return;
+                slider.getDungeon().dungeonPlayers().isEmpty())) {
+            slider.reset();
         }
-        double distance = movement.length();
-        if (distance < 1.0E-4) {
-            return;
-        }
-
-        int samples = SliderMechanics.blockBreakSampleCount(
-            distance,
-            BossRefactorAetherConfig.SLIDER_COMBAT.blockBreakSampleStep.get(),
-            BossRefactorAetherConfig.SLIDER_COMBAT.maxBlockBreakSamples.get());
-        AABB origin = slider.getBoundingBox();
-        Set<BlockPos> visited = new HashSet<>();
-        for (int sampleIndex = 1; sampleIndex <= samples; sampleIndex++) {
-            double progress = sampleIndex / (double) samples;
-            AABB sampleBounds = origin.move(movement.scale(progress)).inflate(0.01);
-            for (BlockPos candidate : BlockPos.betweenClosed(
-                    BlockPos.containing(sampleBounds.minX, sampleBounds.minY, sampleBounds.minZ),
-                    BlockPos.containing(sampleBounds.maxX, sampleBounds.maxY, sampleBounds.maxZ))) {
-                BlockPos position = candidate.immutable();
-                if (visited.contains(position)) {
-                    continue;
-                }
-                if (processIntersectingBlock(level, slider, position, sampleBounds)) {
-                    visited.add(position);
-                }
-            }
-        }
-
-    }
-
-    private static boolean shouldBreakBlocksAlongMovement(Slider slider) {
-        return SliderMechanics.shouldBreakBlocksAlongMovement(
-            state(slider).isSkillActive());
-    }
-
-    public static float normalCollisionDamage(Slider slider, float fallbackAttackDamage) {
-        return configuredDamage(slider, BossRefactorAetherConfig.SLIDER_DAMAGE.normalCollision,
-                fallbackAttackDamage);
     }
 
     public static boolean tryShieldBlock(Player player, Slider slider, DamageSource source) {
@@ -178,6 +130,7 @@ public final class SliderCombatService {
         }
         SliderCombatState state = state(slider);
         long gameTime = slider.level().getGameTime();
+        ensureArena(slider);
 
         if (BossRefactorAetherConfig.SLIDER_COMBAT.immuneToNegativeEffects.get()) {
             removeNegativeEffects(slider);
@@ -207,17 +160,12 @@ public final class SliderCombatService {
                 return;
             }
         }
-        if (slider.getDungeon() == null) {
-            releaseArenaMovementControl(slider);
-            return;
-        }
-        if (!state.isSkillActive()
-            && glidePower(slider)
-            >= BossRefactorAetherConfig.SLIDER_COMBAT.chainGlidePowerCost.get()) {
-            state.skillQueued = true;
-        }
         if (state.isSkillActive()) {
-            tickSkill(slider);
+            if (state.requiresLiveTarget() && validTarget(slider) == null) {
+                cancelSkill(slider);
+            } else {
+                tickSkill(slider);
+            }
         } else {
             tickArenaMovement(slider);
         }
@@ -263,7 +211,8 @@ public final class SliderCombatService {
             interruptCurrentAttack(slider);
         }
         if (state.barrierLayers == 0) {
-            applyLocalStun(slider);
+            applyLocalStun(
+                slider, BossRefactorAetherConfig.SLIDER_COMBAT.stunTicks.get());
             if (mirrorFinalBreak) {
                 ResourceLocation sourceId = cause == SliderBarrierBreakCause.PICKAXE
                         ? PICKAXE_BREAK_SOURCE
@@ -277,14 +226,18 @@ public final class SliderCombatService {
     public static int consumeBarrierFromParryAttempt(Slider slider,
                                                      @Nullable LivingEntity actor) {
         state(slider).parryWindowOpen = false;
-        return consumeBarrier(
+        int remaining = consumeBarrier(
                 slider, SliderBarrierBreakCause.PARRY, actor, false);
+        applyLocalStun(
+            slider, BossRefactorAetherConfig.SLIDER_COMBAT.parryRecoveryTicks.get());
+        return remaining;
     }
 
     public static void acceptParryWithoutBarrier(Slider slider) {
         state(slider).parryWindowOpen = false;
         interruptCurrentAttack(slider);
-        applyLocalStun(slider);
+        applyLocalStun(
+            slider, BossRefactorAetherConfig.SLIDER_COMBAT.parryRecoveryTicks.get());
     }
 
     public static float barrierDamageMultiplier(Slider slider) {
@@ -340,17 +293,16 @@ public final class SliderCombatService {
         }
     }
 
-    private static void applyLocalStun(Slider slider) {
+    private static void applyLocalStun(Slider slider, int stunTicks) {
         SliderCombatState state = state(slider);
-        int stunTicks = BossRefactorAetherConfig.SLIDER_COMBAT.stunTicks.get();
-        state.stunEnd = slider.level().getGameTime() + stunTicks;
-        state.skillQueued = false;
+        int remainingStunTicks = state.extendStun(
+            slider.level().getGameTime(), stunTicks);
         cancelSkill(slider);
         setGlidePower(slider, 0);
         slider.setMoveDirection(null);
         slider.setTargetPoint(null);
-        slider.setMoveDelay(stunTicks);
-        slider.setAttackCooldown(stunTicks);
+        slider.setMoveDelay(remainingStunTicks);
+        slider.setAttackCooldown(remainingStunTicks);
         slider.setDeltaMovement(Vec3.ZERO);
     }
 
@@ -364,30 +316,35 @@ public final class SliderCombatService {
 
     private static void startCharge(Slider slider) {
         SliderCombatState state = state(slider);
-        int cost = BossRefactorAetherConfig.SLIDER_COMBAT.chainGlidePowerCost.get();
-        if (glidePower(slider) < cost) {
-            state.skillQueued = false;
+        int maximumGlidePower = BossRefactorAetherConfig.SLIDER_COMBAT
+            .maxGlidePower.get();
+        int cost = SliderMechanics.effectiveGlidePowerCost(
+            maximumGlidePower,
+            BossRefactorAetherConfig.SLIDER_COMBAT.chainGlidePowerCost.get());
+        int skillGlidePower = glidePower(slider);
+        if (!SliderMechanics.hasGlidePowerForSkill(
+            skillGlidePower, maximumGlidePower, cost)) {
             return;
         }
         state.movementPhase = SliderMovementPhase.IDLE;
-        state.movementTicks = 0;
         stopArenaMovement(slider);
-        state.skillQueued = false;
+        state.skillGlidePower = skillGlidePower;
+        state.skillPhaseTwo = state.phaseTwo;
         setGlidePower(slider, SliderMechanics.glidePowerAfterChainCost(
-            glidePower(slider), state.phaseTwo,
-            BossRefactorAetherConfig.SLIDER_COMBAT.maxGlidePower.get(),
+            skillGlidePower, state.skillPhaseTwo,
+            maximumGlidePower,
             cost,
             BossRefactorAetherConfig.SLIDER_COMBAT.phaseTwoMinGlidePower.get()));
         state.skillPhase = SliderSkillPhase.CHARGING;
         state.phaseTicks = 0;
         state.completedDashes = 0;
-        state.totalDashes = state.phaseTwo
+        state.totalDashes = state.skillPhaseTwo
             ? BossRefactorAetherConfig.SLIDER_COMBAT.phaseTwoDashes.get()
             : BossRefactorAetherConfig.SLIDER_COMBAT.phaseOneDashes.get();
         state.extraDashDecided = false;
         state.currentDashParryable = !BossRefactorAetherConfig.SLIDER_COMBAT
             .phaseTwoFirstDashUnblockable.get()
-            || !SliderMechanics.isUnblockableChainDash(state.phaseTwo, 0);
+            || !SliderMechanics.isUnblockableChainDash(state.skillPhaseTwo, 0);
         slider.setMoveDirection(null);
         slider.setTargetPoint(null);
         slider.setDeltaMovement(Vec3.ZERO);
@@ -423,8 +380,8 @@ public final class SliderCombatService {
     }
 
     private static void startDash(Slider slider) {
-        LivingEntity target = slider.getTarget();
-        if (target == null || !target.isAlive()) {
+        LivingEntity target = validTarget(slider);
+        if (target == null) {
             cancelSkill(slider);
             return;
         }
@@ -449,12 +406,16 @@ public final class SliderCombatService {
             : Math.signum(axisOffset);
         state.dashDirection = SliderMechanics.axisMotion(dashAxis, dashSign);
         state.dashStart = slider.position();
+        state.dashPreviousPosition = slider.position();
+        state.dashDistanceLimit = constrainedDashReach(
+            slider, dashAxis, dashSign,
+            maximumDashReach(slider, state.skillPhaseTwo, state.skillGlidePower));
         state.phaseTicks = 0;
         state.dashHits.clear();
         boolean unblockable = BossRefactorAetherConfig.SLIDER_COMBAT
             .phaseTwoFirstDashUnblockable.get()
             && SliderMechanics.isUnblockableChainDash(
-                state.phaseTwo, state.completedDashes);
+                state.skillPhaseTwo, state.completedDashes);
         state.currentDashParryable = !unblockable;
         state.skillPhase = SliderSkillPhase.DASHING;
         if (state.currentDashParryable) {
@@ -463,8 +424,13 @@ public final class SliderCombatService {
             closeParryWindow(slider);
         }
         double firstStep = SliderMechanics.nextDashStep(
-            chainSpeed(slider), 0.0,
-            BossRefactorAetherConfig.SLIDER_RANGE.continuousGlideDistance.get());
+            chainSpeed(slider, state.skillPhaseTwo, state.skillGlidePower), 0.0,
+            state.dashDistanceLimit);
+        if (firstStep <= SliderMechanics.MOVEMENT_PROGRESS_EPSILON) {
+            clearTelegraph(slider);
+            finishCurrentDash(slider);
+            return;
+        }
         slider.setMoveDirection(horizontalDirection(dashAxis, dashSign));
         slider.setDeltaMovement(state.dashDirection.scale(firstStep));
         if (unblockable) {
@@ -479,34 +445,31 @@ public final class SliderCombatService {
         if (!state.currentDashParryable) {
             emitUnblockableDashMarker(slider, false);
         }
-        if (slider.horizontalCollision) {
-            finishCurrentDash(slider);
-            return;
-        }
 
         double traveled = slider.position().distanceTo(state.dashStart);
-        Vec3 previousMotion = slider.getDeltaMovement();
-        AABB sweptBounds = slider.getBoundingBox()
-            .expandTowards(previousMotion.scale(-1.0))
-                .inflate(0.25);
+        AABB sweptBounds = SliderMechanics.actualMovementSweep(
+                slider.getBoundingBox(), state.dashPreviousPosition,
+                slider.position(), SliderMechanics.DASH_HIT_INFLATION);
         List<Player> players = slider.level().getEntitiesOfClass(Player.class, sweptBounds,
                 player -> player.isAlive() && !player.isCreative() && !player.isSpectator());
         for (Player player : players) {
             if (!state.dashHits.add(player.getUUID())) {
                 continue;
             }
-                boolean unblockable = BossRefactorAetherConfig.SLIDER_COMBAT
-                    .phaseTwoFirstDashUnblockable.get()
+            boolean unblockable = BossRefactorAetherConfig.SLIDER_COMBAT
+                .phaseTwoFirstDashUnblockable.get()
                     && SliderMechanics.isUnblockableChainDash(
-                        state.phaseTwo, state.completedDashes);
-                DamageSource damageSource = SliderDamageTypes.chainDash(slider, unblockable);
-                if (tryShieldBlock(player, slider, damageSource)) {
+                        state.skillPhaseTwo, state.completedDashes);
+            DamageSource damageSource = SliderDamageTypes.chainDash(slider, unblockable);
+            if (tryShieldBlock(player, slider, damageSource)) {
                 return;
-                }
+            }
             player.hurt(
                     damageSource,
                     configuredDamage(slider, BossRefactorAetherConfig.SLIDER_DAMAGE.chainDash,
-                            SliderMechanics.DEFAULT_ATTACK_DAMAGE)
+                            SliderMechanics.DEFAULT_ATTACK_DAMAGE,
+                            state.skillPhaseTwo,
+                            state.skillGlidePower)
             );
             if (state.skillPhase != SliderSkillPhase.DASHING) {
                 return;
@@ -515,16 +478,21 @@ public final class SliderCombatService {
             return;
         }
 
+        state.dashPreviousPosition = slider.position();
+        if (slider.horizontalCollision) {
+            finishCurrentDash(slider);
+            return;
+        }
+
         state.phaseTicks++;
         if (state.phaseTicks >= BossRefactorAetherConfig.SLIDER_TIMING.dashTickLimit.get()
-            || traveled >= BossRefactorAetherConfig.SLIDER_RANGE
-                .continuousGlideDistance.get()) {
+            || traveled >= state.dashDistanceLimit) {
             finishCurrentDash(slider);
             return;
         }
         double nextStep = SliderMechanics.nextDashStep(
-            chainSpeed(slider), traveled,
-            BossRefactorAetherConfig.SLIDER_RANGE.continuousGlideDistance.get());
+            chainSpeed(slider, state.skillPhaseTwo, state.skillGlidePower), traveled,
+            state.dashDistanceLimit);
         Direction.Axis dashAxis = Math.abs(state.dashDirection.x) > 0.0
             ? Direction.Axis.X
             : Direction.Axis.Z;
@@ -539,51 +507,103 @@ public final class SliderCombatService {
             state.patrolClockwise = slider.getRandom().nextBoolean();
             state.patrolDirectionInitialized = true;
         }
-        LivingEntity target = slider.getTarget();
-        if (target != null && !target.isAlive()) {
-            target = null;
+        LivingEntity target = validTarget(slider);
+        tickPatrolCollisionDamage(slider);
+        if (state.isStunned(slider.level().getGameTime())) {
+            stopArenaMovement(slider);
+            return;
+        }
+
+        if (state.movementPhase == SliderMovementPhase.PAUSING_AT_CORNER) {
+            tickPerimeterCornerPause(slider, target);
+            return;
+        }
+        if (isArenaMovementStalled(slider)) {
+            recoverStalledArenaMovement(slider);
+            return;
         }
 
         if (state.movementPhase == SliderMovementPhase.IDLE) {
             beginReturnToEdge(slider);
+            return;
         }
         if (state.movementPhase == SliderMovementPhase.VERTICAL_ALIGNING) {
             tickVerticalAlignment(slider, target);
             return;
         }
-        if ((state.movementPhase == SliderMovementPhase.RETURNING_TO_EDGE
-                || state.movementPhase == SliderMovementPhase.PATROLLING)
-                && target != null && needsVerticalAlignment(slider, target)) {
-            startVerticalAlignment(slider, state.movementPhase);
+        if (state.movementPhase == SliderMovementPhase.RETURNING_TO_EDGE) {
+            tickReturnToEdge(slider);
             return;
         }
-        if (state.movementPhase == SliderMovementPhase.PATROLLING
-                && state.skillQueued && target != null
-                && canSkillHitFromCurrentPosition(slider, target)) {
-            startCharge(slider);
+        if (state.movementPhase == SliderMovementPhase.PATROLLING) {
+            tickPerimeterPatrol(slider, target);
+        }
+    }
+
+    private static void tickPatrolCollisionDamage(Slider slider) {
+        SliderCombatState state = state(slider);
+        Vec3 currentPosition = slider.position();
+        if (!state.patrolCollisionPositionInitialized) {
+            state.patrolCollisionPositionInitialized = true;
+            state.patrolCollisionPreviousPosition = currentPosition;
+            state.patrolCollisionContacts.clear();
             return;
         }
 
-        switch (state.movementPhase) {
-            case RETURNING_TO_EDGE -> tickReturnToEdge(slider);
-            case PATROLLING -> tickPerimeterPatrol(slider, target);
-            case IDLE, VERTICAL_ALIGNING -> {
-            }
+        Vec3 previousPosition = state.patrolCollisionPreviousPosition;
+        state.patrolCollisionPreviousPosition = currentPosition;
+        if (state.movementPhase != SliderMovementPhase.PATROLLING
+                || !SliderMechanics.hasMovementProgress(
+                    previousPosition, currentPosition)) {
+            state.patrolCollisionContacts.clear();
+            return;
         }
+
+        AABB sweptBounds = SliderMechanics.actualMovementSweep(
+                slider.getBoundingBox(), previousPosition, currentPosition,
+                SliderMechanics.PATROL_HIT_INFLATION);
+        List<Player> players = slider.level().getEntitiesOfClass(
+                Player.class, sweptBounds,
+                player -> player.isAlive()
+                    && !player.isCreative()
+                    && !player.isSpectator());
+        Set<java.util.UUID> currentContacts = new HashSet<>();
+        for (Player player : players) {
+            currentContacts.add(player.getUUID());
+            if (!state.patrolCollisionContacts.add(player.getUUID())) {
+                continue;
+            }
+            DamageSource damageSource = SliderDamageTypes.collision(slider);
+            if (tryShieldBlock(player, slider, damageSource)) {
+                continue;
+            }
+            player.hurt(
+                    damageSource,
+                    configuredDamage(
+                        slider,
+                        BossRefactorAetherConfig.SLIDER_DAMAGE.normalCollision,
+                        SliderMechanics.DEFAULT_ATTACK_DAMAGE,
+                        state.phaseTwo,
+                        glidePower(slider)));
+        }
+        state.patrolCollisionContacts.retainAll(currentContacts);
     }
 
     private static void beginReturnToEdge(Slider slider) {
         AABB perimeter = arenaPerimeter(slider);
+        SliderCombatState state = state(slider);
         if (perimeter == null) {
-            releaseArenaMovementControl(slider);
+            state.movementPhase = SliderMovementPhase.IDLE;
+            state.patrolEdgeStarted = false;
+            stopArenaMovement(slider);
             return;
         }
-        SliderCombatState state = state(slider);
         state.perimeterEdge = SliderMechanics.nearestPerimeterEdge(
                 slider.getX(), slider.getZ(),
                 perimeter.minX, perimeter.maxX, perimeter.minZ, perimeter.maxZ);
         state.movementPhase = SliderMovementPhase.RETURNING_TO_EDGE;
-        state.movementTicks = 0;
+        state.patrolEdgeStarted = false;
+        state.patrolCornerResumeGameTime = 0L;
         stopArenaMovement(slider);
     }
 
@@ -591,7 +611,7 @@ public final class SliderCombatService {
         SliderCombatState state = state(slider);
         AABB perimeter = arenaPerimeter(slider);
         if (perimeter == null) {
-            releaseArenaMovementControl(slider);
+            deactivateArenaMovement(slider);
             return;
         }
         Vec3 destination = SliderMechanics.closestPointOnPerimeterEdge(
@@ -600,8 +620,9 @@ public final class SliderCombatService {
         if (horizontalDistanceSquared(slider.position(), destination)
                 <= square(BossRefactorAetherConfig.SLIDER_RANGE
                     .perimeterArrivalTolerance.get())) {
+            snapToHorizontalDestination(slider, destination);
             state.movementPhase = SliderMovementPhase.PATROLLING;
-            state.movementTicks = 0;
+            state.patrolEdgeStarted = false;
             stopArenaMovement(slider);
             return;
         }
@@ -616,7 +637,7 @@ public final class SliderCombatService {
         SliderCombatState state = state(slider);
         AABB perimeter = arenaPerimeter(slider);
         if (perimeter == null) {
-            releaseArenaMovementControl(slider);
+            deactivateArenaMovement(slider);
             return;
         }
         Vec3 destination = SliderMechanics.patrolCorner(
@@ -625,26 +646,89 @@ public final class SliderCombatService {
         if (horizontalDistanceSquared(slider.position(), destination)
                 <= square(BossRefactorAetherConfig.SLIDER_RANGE
                     .perimeterArrivalTolerance.get())) {
-            if (state.movementTicks > 0) {
+            snapToHorizontalDestination(slider, destination);
+            if (state.patrolEdgeStarted) {
                 grantPerimeterProgress(slider);
             }
+            state.patrolEdgeStarted = true;
             state.perimeterEdge = SliderMechanics.nextPerimeterEdge(
                     state.perimeterEdge, state.patrolClockwise);
-            state.movementTicks = 0;
-            if (state.skillQueued && target != null
-                    && canSkillHitFromCurrentPosition(slider, target)) {
+                state.movementPhase = SliderMovementPhase.PAUSING_AT_CORNER;
+                state.patrolCornerResumeGameTime = SliderMechanics.perimeterCornerPauseEnd(
+                    slider.level().getGameTime(),
+                        BossRefactorAetherConfig.SLIDER_TIMING
+                            .perimeterCornerPauseTicks.get());
+                stopArenaMovement(slider);
+                return;
+        }
+        if (target != null && canPrepareSkillFromCurrentPosition(slider, target)) {
+            if (!needsVerticalAlignment(slider, target)) {
                 startCharge(slider);
                 return;
             }
-            destination = SliderMechanics.patrolCorner(
-                    state.perimeterEdge, state.patrolClockwise,
-                    perimeter.minX, perimeter.maxX, perimeter.minZ, perimeter.maxZ);
+            if (slider.level().getGameTime()
+                    >= state.nextVerticalAlignmentGameTime) {
+                startVerticalAlignment(slider, SliderMovementPhase.PATROLLING);
+                return;
+            }
         }
-        state.movementTicks++;
-        setHorizontalMovement(slider, SliderMechanics.horizontalStepToward(
+        Vec3 movement = SliderMechanics.horizontalStepToward(
                 slider.getX(), slider.getZ(), destination.x, destination.z,
                 arenaMovementSpeed(slider, BossRefactorAetherConfig.SLIDER_MOVEMENT
-                    .perimeterPatrolSpeedMultiplier.get())));
+                .perimeterPatrolSpeedMultiplier.get()));
+        setHorizontalMovement(slider,
+            clampPatrolMovementToSkillPosition(slider, target, movement));
+    }
+
+    private static void tickPerimeterCornerPause(
+            Slider slider, @Nullable LivingEntity target) {
+        SliderCombatState state = state(slider);
+        stopArenaMovement(slider);
+        if (SliderMechanics.isPerimeterCornerPauseActive(
+                slider.level().getGameTime(), state.patrolCornerResumeGameTime)) {
+            return;
+        }
+        state.patrolCornerResumeGameTime = 0L;
+        state.movementPhase = SliderMovementPhase.PATROLLING;
+        tickPerimeterPatrol(slider, target);
+    }
+
+    private static boolean isArenaMovementStalled(Slider slider) {
+        SliderCombatState state = state(slider);
+        if (state.movementPhase == SliderMovementPhase.IDLE
+                || state.monitoredMovementPhase != state.movementPhase) {
+            state.monitoredMovementPhase = state.movementPhase;
+            state.movementProgressPosition = slider.position();
+            state.movementStallTicks = 0;
+            return false;
+        }
+        if (SliderMechanics.hasMovementProgress(
+                state.movementProgressPosition, slider.position())) {
+            state.movementProgressPosition = slider.position();
+            state.movementStallTicks = 0;
+            return false;
+        }
+        state.movementStallTicks++;
+        return state.movementStallTicks
+                >= SliderMechanics.ARENA_MOVEMENT_STALL_TICKS;
+    }
+
+    private static void recoverStalledArenaMovement(Slider slider) {
+        SliderCombatState state = state(slider);
+        if (state.movementPhase == SliderMovementPhase.VERTICAL_ALIGNING) {
+            state.nextVerticalAlignmentGameTime = slider.level().getGameTime()
+                    + SliderMechanics.VERTICAL_ALIGNMENT_RETRY_TICKS;
+            state.movementPhase = state.resumeMovementPhase;
+        } else {
+            state.perimeterEdge = SliderMechanics.nextPerimeterEdge(
+                    state.perimeterEdge, state.patrolClockwise);
+            state.movementPhase = SliderMovementPhase.RETURNING_TO_EDGE;
+            state.patrolEdgeStarted = false;
+        }
+        state.monitoredMovementPhase = SliderMovementPhase.IDLE;
+        state.movementProgressPosition = slider.position();
+        state.movementStallTicks = 0;
+        stopArenaMovement(slider);
     }
 
     private static void startVerticalAlignment(
@@ -666,9 +750,11 @@ public final class SliderCombatService {
         }
         AABB sliderBounds = slider.getBoundingBox();
         AABB targetBounds = target.getBoundingBox();
-        double step = SliderMechanics.centerHeightAlignmentStep(
+        double step = SliderMechanics.verticalAttackAlignmentStep(
                 sliderBounds.minY, sliderBounds.maxY,
                 targetBounds.minY, targetBounds.maxY,
+            BossRefactorAetherConfig.SLIDER_RANGE
+                .verticalAlignmentTolerance.get(),
                 arenaMovementSpeed(slider, BossRefactorAetherConfig.SLIDER_MOVEMENT
                     .verticalAlignmentSpeedMultiplier.get()));
         setVerticalMovement(slider, step);
@@ -677,7 +763,7 @@ public final class SliderCombatService {
     private static boolean needsVerticalAlignment(Slider slider, LivingEntity target) {
         AABB sliderBounds = slider.getBoundingBox();
         AABB targetBounds = target.getBoundingBox();
-        return !SliderMechanics.isCenterHeightAligned(
+        return !SliderMechanics.hasVerticalAttackOverlap(
                 sliderBounds.minY, sliderBounds.maxY,
                 targetBounds.minY, targetBounds.maxY,
                 BossRefactorAetherConfig.SLIDER_RANGE
@@ -685,40 +771,80 @@ public final class SliderCombatService {
     }
 
     private static boolean canSkillHitFromCurrentPosition(
-            Slider slider, LivingEntity target) {
+            Slider slider, LivingEntity target,
+            boolean phaseTwo, int skillGlidePower) {
+        double laneHalfWidth = slider.getBbWidth() * 0.5
+                + target.getBbWidth() * 0.5
+                + SliderMechanics.DASH_HIT_INFLATION;
+        double maximumReach = maximumDashReach(slider, phaseTwo, skillGlidePower);
+        double xReach = constrainedDashReach(
+                slider, Direction.Axis.X, target.getX() - slider.getX(), maximumReach);
+        double zReach = constrainedDashReach(
+                slider, Direction.Axis.Z, target.getZ() - slider.getZ(), maximumReach);
+        return SliderMechanics.canHitWithAxisDash(
+                slider.getX(), slider.getZ(), target.getX(), target.getZ(),
+            xReach, zReach, laneHalfWidth);
+    }
+
+    private static Vec3 clampPatrolMovementToSkillPosition(
+            Slider slider, @Nullable LivingEntity target, Vec3 movement) {
+        if (target == null || movement.lengthSqr() < 1.0E-8) {
+            return movement;
+        }
+        int skillGlidePower = glidePower(slider);
+        if (!SliderMechanics.hasGlidePowerForSkill(
+                skillGlidePower,
+                BossRefactorAetherConfig.SLIDER_COMBAT.maxGlidePower.get(),
+                BossRefactorAetherConfig.SLIDER_COMBAT.chainGlidePowerCost.get())) {
+            return movement;
+        }
+        if (canSkillHitFromCurrentPosition(
+                slider, target, state(slider).phaseTwo, skillGlidePower)) {
+            return movement;
+        }
         double laneHalfWidth = slider.getBbWidth() * 0.5
                 + target.getBbWidth() * 0.5
                 + SliderMechanics.DASH_HIT_INFLATION;
         double maximumReach = SliderMechanics.maximumDashReach(
-            BossRefactorAetherConfig.SLIDER_RANGE.continuousGlideDistance.get(),
-            chainSpeed(slider),
-            BossRefactorAetherConfig.SLIDER_TIMING.dashTickLimit.get());
-        return SliderMechanics.canHitWithAxisDash(
-                slider.getX(), slider.getZ(), target.getX(), target.getZ(),
-            maximumReach, laneHalfWidth);
+                BossRefactorAetherConfig.SLIDER_RANGE.continuousGlideDistance.get(),
+                chainSpeed(slider, state(slider).phaseTwo, skillGlidePower),
+                BossRefactorAetherConfig.SLIDER_TIMING.dashTickLimit.get());
+        double intersection = SliderMechanics.firstAxisDashIntersection(
+                slider.getX(), slider.getZ(),
+                slider.getX() + movement.x, slider.getZ() + movement.z,
+                target.getX(), target.getZ(), maximumReach, laneHalfWidth);
+        return Double.isNaN(intersection) ? movement : movement.scale(intersection);
+    }
+
+    @Nullable
+    private static LivingEntity validTarget(Slider slider) {
+        LivingEntity target = slider.getTarget();
+        if (target == null || !target.isAlive() || target.isRemoved()
+                || target.level() != slider.level()
+                || target instanceof Player player
+                    && (player.isCreative() || player.isSpectator())) {
+            return null;
+        }
+        return target;
+    }
+
+    private static boolean canPrepareSkillFromCurrentPosition(
+            Slider slider, LivingEntity target) {
+        int skillGlidePower = glidePower(slider);
+        if (!SliderMechanics.hasGlidePowerForSkill(
+                skillGlidePower,
+                BossRefactorAetherConfig.SLIDER_COMBAT.maxGlidePower.get(),
+                BossRefactorAetherConfig.SLIDER_COMBAT.chainGlidePowerCost.get())) {
+            return false;
+        }
+        return canSkillHitFromCurrentPosition(
+                slider, target, state(slider).phaseTwo, skillGlidePower);
     }
 
     private static void grantPerimeterProgress(Slider slider) {
         setGlidePower(slider, glidePower(slider)
                 + BossRefactorAetherConfig.SLIDER_COMBAT
                     .glidePowerGainPerPatrolEdge.get());
-        if (glidePower(slider) >= BossRefactorAetherConfig.SLIDER_COMBAT
-                .chainGlidePowerCost.get()) {
-            state(slider).skillQueued = true;
-        }
-    }
-
-    private static void releaseArenaMovementControl(Slider slider) {
-        SliderCombatState state = state(slider);
-        if (!state.hasArenaMovementState()) {
-            return;
-        }
-        closeParryWindow(slider);
-        state.resetTransient();
-        clearTelegraph(slider);
-        slider.setMoveDirection(null);
-        slider.setTargetPoint(null);
-        slider.setDeltaMovement(Vec3.ZERO);
     }
 
     private static void stopArenaMovement(Slider slider) {
@@ -760,12 +886,34 @@ public final class SliderCombatService {
             slider.getMaxVelocity(), movementMultiplier(slider), multiplier);
     }
 
+    private static double maximumDashReach(
+            Slider slider, boolean phaseTwo, int skillGlidePower) {
+        return SliderMechanics.maximumDashReach(
+                BossRefactorAetherConfig.SLIDER_RANGE.continuousGlideDistance.get(),
+                chainSpeed(slider, phaseTwo, skillGlidePower),
+                BossRefactorAetherConfig.SLIDER_TIMING.dashTickLimit.get());
+    }
+
+    private static double constrainedDashReach(
+            Slider slider, Direction.Axis axis,
+            double direction, double maximumReach) {
+        AABB perimeter = arenaPerimeter(slider);
+        if (perimeter == null) {
+            return Math.max(0.0, maximumReach);
+        }
+        return axis == Direction.Axis.X
+                ? SliderMechanics.boundedAxisDashDistance(
+                    slider.getX(), direction, perimeter.minX, perimeter.maxX, maximumReach)
+                : SliderMechanics.boundedAxisDashDistance(
+                    slider.getZ(), direction, perimeter.minZ, perimeter.maxZ, maximumReach);
+    }
+
     @Nullable
     private static AABB arenaPerimeter(Slider slider) {
-        if (slider.getDungeon() == null) {
+        AABB room = arenaRoomBounds(slider);
+        if (room == null) {
             return null;
         }
-        AABB room = slider.getDungeon().roomBounds();
         double inset = SliderMechanics.perimeterInset(
             slider.getBbWidth(),
             BossRefactorAetherConfig.SLIDER_RANGE.perimeterEdgeClearance.get());
@@ -776,10 +924,27 @@ public final class SliderCombatService {
         return new AABB(minimumX, room.minY, minimumZ, maximumX, room.maxY, maximumZ);
     }
 
+    @Nullable
+    private static AABB arenaRoomBounds(Slider slider) {
+        if (slider.getDungeon() != null) {
+            return slider.getDungeon().roomBounds();
+        }
+        SliderCombatState state = state(slider);
+        return state.hasStandaloneArena()
+                ? SliderMechanics.standaloneRoomBounds(
+                    state.getStandaloneArenaCenter())
+                : null;
+    }
+
     private static double horizontalDistanceSquared(Vec3 first, Vec3 second) {
         double deltaX = first.x - second.x;
         double deltaZ = first.z - second.z;
         return deltaX * deltaX + deltaZ * deltaZ;
+    }
+
+    private static void snapToHorizontalDestination(
+            Slider slider, Vec3 destination) {
+        slider.setPos(destination.x, slider.getY(), destination.z);
     }
 
     private static double square(double value) {
@@ -813,7 +978,7 @@ public final class SliderCombatService {
 
         if (state.completedDashes >= state.totalDashes && !state.extraDashDecided) {
             state.extraDashDecided = true;
-                if (slider.getRandom().nextDouble()
+            if (slider.getRandom().nextDouble()
                     < BossRefactorAetherConfig.SLIDER_COMBAT.extraDashChance.get()) {
                 state.totalDashes++;
             }
@@ -828,14 +993,15 @@ public final class SliderCombatService {
 
     private static float configuredDamage(
             Slider slider, BossRefactorAetherConfig.DamageFormula formula,
-            double fallbackAttackDamage) {
+            double fallbackAttackDamage,
+            boolean phaseTwo, int glidePower) {
         AttributeInstance attackDamage = slider.getAttribute(Attributes.ATTACK_DAMAGE);
         return SliderMechanics.configuredDamage(
                 formula.baseDamage.get(),
             attackDamage != null ? attackDamage.getValue() : fallbackAttackDamage,
                 formula.attackDamageMultiplier.get(),
-                state(slider).phaseTwo,
-                glidePower(slider),
+                phaseTwo,
+                glidePower,
                 BossRefactorAetherConfig.SLIDER_COMBAT.maxGlidePower.get(),
                 BossRefactorAetherConfig.SLIDER_COMBAT.phaseTwoDamageMultiplier.get(),
                 BossRefactorAetherConfig.SLIDER_COMBAT.glidePowerDamagePerLayer.get());
@@ -887,38 +1053,6 @@ public final class SliderCombatService {
         return null;
     }
 
-    private static boolean processIntersectingBlock(ServerLevel level, Slider slider,
-                                                    BlockPos position, AABB sampleBounds) {
-        BlockState blockState = level.getBlockState(position);
-        if (blockState.isAir()) {
-            return true;
-        }
-
-        VoxelShape collisionShape = blockState.getCollisionShape(level, position);
-        boolean intersects = collisionShape.toAabbs().stream()
-                .map(bounds -> bounds.move(position))
-                .anyMatch(sampleBounds::intersects);
-        if (!intersects) {
-            return collisionShape.isEmpty();
-        }
-        if (canDestroyMovementBlock(level, slider, position, blockState)
-                && ForgeEventFactory.onEntityDestroyBlock(slider, position, blockState)) {
-            level.destroyBlock(position, false, slider);
-        }
-        return true;
-    }
-
-    private static boolean canDestroyMovementBlock(
-            ServerLevel level, Slider slider, BlockPos position,
-            BlockState blockState) {
-        return SliderMechanics.canDestroyMovementBlock(
-                blockState.is(SliderBlockTags.FORCE_BREAKABLE),
-                blockState.hasBlockEntity(),
-                blockState.is(SliderBlockTags.UNBREAKABLE),
-                blockState.getDestroySpeed(level, position),
-                blockState.canEntityDestroy(level, position, slider));
-    }
-
     private static void removeNegativeEffects(Slider slider) {
         List<MobEffectInstance> harmfulEffects = slider.getActiveEffects().stream()
                 .filter(effect -> effect.getEffect().getCategory() == MobEffectCategory.HARMFUL)
@@ -958,8 +1092,7 @@ public final class SliderCombatService {
         state.resetSkillTransient();
         clearTelegraph(slider);
         stopArenaMovement(slider);
-        if (slider.isAwake() && !slider.isDeadOrDying()
-                && slider.getDungeon() != null) {
+        if (slider.isAwake() && !slider.isDeadOrDying()) {
             beginReturnToEdge(slider);
         } else {
             state.movementPhase = SliderMovementPhase.IDLE;
@@ -997,10 +1130,11 @@ public final class SliderCombatService {
         }
     }
 
-    private static double chainSpeed(Slider slider) {
+    private static double chainSpeed(
+            Slider slider, boolean phaseTwo, int skillGlidePower) {
         return SliderMechanics.explicitMovementSpeed(
                 slider.getMaxVelocity(),
-                movementMultiplier(slider),
+                movementMultiplier(slider, phaseTwo, skillGlidePower),
                 BossRefactorAetherConfig.SLIDER_MOVEMENT
                     .chainDashSpeedMultiplier.get());
     }
@@ -1051,41 +1185,53 @@ public final class SliderCombatService {
         }
     }
 
-            private static void updateContinuousGlideTelegraph(Slider slider, int elapsedTicks) {
-            float progress = AttackTelegraph.windupProgress(
-                    elapsedTicks,
-                    BossRefactorAetherConfig.SLIDER_TIMING.chargeTicks.get());
-            if (slider instanceof AttackTelegraphAccess access
-                    && access.bossRefactorAether$getAttackTelegraph().shape()
-                        == AttackTelegraphShape.CORRIDOR) {
-                updateTelegraphProgress(slider, progress);
-                return;
-            }
-            LivingEntity target = slider.getTarget();
-            if (target == null || !target.isAlive()) {
-                clearTelegraph(slider);
-                return;
-            }
-            Direction.Axis axis = SliderMechanics.chooseAttackAxis(
-                target.getX() - slider.getX(), target.getZ() - slider.getZ());
-            double signed = axis == Direction.Axis.X
-                ? target.getX() - slider.getX()
-                : target.getZ() - slider.getZ();
-            Vec3 direction = SliderMechanics.axisMotion(
-                axis, signed >= 0.0 ? 1.0 : -1.0);
-            setTelegraph(
+    private static void updateContinuousGlideTelegraph(Slider slider, int elapsedTicks) {
+        float progress = AttackTelegraph.windupProgress(
+                elapsedTicks,
+                BossRefactorAetherConfig.SLIDER_TIMING.chargeTicks.get());
+        if (slider instanceof AttackTelegraphAccess access
+                && access.bossRefactorAether$getAttackTelegraph().shape()
+                    == AttackTelegraphShape.CORRIDOR) {
+            updateTelegraphProgress(slider, progress);
+            return;
+        }
+        LivingEntity target = validTarget(slider);
+        if (target == null) {
+            clearTelegraph(slider);
+            return;
+        }
+        double laneHalfWidth = slider.getBbWidth() * 0.5
+                    + target.getBbWidth() * 0.5
+                    + SliderMechanics.DASH_HIT_INFLATION;
+        double maximumReach = maximumDashReach(
+            slider, state(slider).skillPhaseTwo, state(slider).skillGlidePower);
+        double xReach = constrainedDashReach(
+            slider, Direction.Axis.X, target.getX() - slider.getX(), maximumReach);
+        double zReach = constrainedDashReach(
+            slider, Direction.Axis.Z, target.getZ() - slider.getZ(), maximumReach);
+        Direction.Axis axis = SliderMechanics.chooseReachableAttackAxis(
+                target.getX() - slider.getX(), target.getZ() - slider.getZ(),
+            xReach, zReach, laneHalfWidth);
+        double signed = axis == Direction.Axis.X
+            ? target.getX() - slider.getX()
+            : target.getZ() - slider.getZ();
+        double telegraphReach = axis == Direction.Axis.X ? xReach : zReach;
+        Vec3 direction = SliderMechanics.axisMotion(
+            axis, signed >= 0.0 ? 1.0 : -1.0);
+        setTelegraph(
                 slider,
                 AttackTelegraphShape.CORRIDOR,
                 direction,
-                BossRefactorAetherConfig.SLIDER_RANGE.continuousGlideDistance.get(),
+                telegraphReach,
                 slider.getBbWidth() * 0.65,
                 0.0,
                 progress);
-            }
+    }
 
     private static void clearTelegraph(Slider slider) {
         if (slider instanceof AttackTelegraphAccess access) {
             access.bossRefactorAether$setAttackTelegraph(AttackTelegraph.NONE);
         }
     }
+
 }

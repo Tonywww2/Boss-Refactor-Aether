@@ -1,6 +1,7 @@
 package com.tonywww.bossrefactoraether.mixin;
 
 import com.aetherteam.aether.entity.monster.dungeon.boss.Slider;
+import com.aetherteam.aether.entity.monster.dungeon.boss.goal.CrushGoal;
 import com.tonywww.bossrefactoraether.slider.SliderCombatService;
 import com.tonywww.bossrefactoraether.slider.SliderCombatState;
 import com.tonywww.bossrefactoraether.slider.SliderMechanics;
@@ -17,8 +18,12 @@ import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerBossEvent;
 import net.minecraft.world.Difficulty;
 import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.projectile.Projectile;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -33,7 +38,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import java.util.Optional;
 
 @Mixin(Slider.class)
-public abstract class SliderMixin implements SliderStateAccess, AttackTelegraphAccess {
+public abstract class SliderMixin extends PathfinderMob
+    implements SliderStateAccess, AttackTelegraphAccess {
     @Unique
     private static final EntityDataAccessor<Integer> BOSS_REFACTOR_AETHER$GLIDE_POWER =
             SynchedEntityData.defineId(Slider.class, EntityDataSerializers.INT);
@@ -79,10 +85,63 @@ public abstract class SliderMixin implements SliderStateAccess, AttackTelegraphA
     private SliderCombatState bossRefactorAether$combatState;
     @Unique
     private boolean bossRefactorAether$statusTitleInitialized;
+    @Unique
+    private boolean bossRefactorAether$originalMovementGoalsRemoved;
+    @Unique
+    private boolean bossRefactorAether$previousNoPhysics;
+    @Unique
+    private boolean bossRefactorAether$wasAwake;
+
+    protected SliderMixin(EntityType<? extends PathfinderMob> entityType, Level level) {
+        super(entityType, level);
+    }
+
+    @Inject(method = "registerGoals", at = @At("TAIL"))
+    private void bossRefactorAether$removeBlockBreakingGoal(CallbackInfo callback) {
+        this.goalSelector.removeAllGoals(goal -> goal instanceof CrushGoal);
+    }
 
     @Inject(method = "tick", at = @At("HEAD"))
-    private void bossRefactorAether$destroyBlocksAlongMovement(CallbackInfo callback) {
-        SliderCombatService.destroyBlocksAlongMovement((Slider) (Object) this);
+    private void bossRefactorAether$beginBlockCollisionBypass(CallbackInfo callback) {
+        bossRefactorAether$previousNoPhysics = this.noPhysics;
+        Slider slider = (Slider) (Object) this;
+        SliderCombatService.ensureArena(slider);
+        boolean awake = slider.isAwake() && !slider.isDeadOrDying();
+        boolean controlsMovement = SliderMechanics.shouldTakeOverOriginalMovement(
+            SliderCombatService.hasArena(slider));
+        if (SliderMechanics.shouldDiscardExternalMovementOnAwaken(
+            bossRefactorAether$wasAwake, awake, controlsMovement)) {
+            this.getNavigation().stop();
+            slider.setMoveDirection(null);
+            slider.setTargetPoint(null);
+            slider.setDeltaMovement(Vec3.ZERO);
+        }
+        bossRefactorAether$wasAwake = awake;
+        if (!awake || !controlsMovement) {
+            return;
+        }
+        this.noPhysics = true;
+        this.horizontalCollision = false;
+        this.verticalCollision = false;
+        if (bossRefactorAether$getCombatState().isPausingAtCorner()) {
+            this.setDeltaMovement(Vec3.ZERO);
+        }
+    }
+
+    @Inject(method = "tick", at = @At("HEAD"))
+    private void bossRefactorAether$removeOriginalMovementGoals(CallbackInfo callback) {
+        Slider slider = (Slider) (Object) this;
+        SliderCombatService.ensureArena(slider);
+        if (!bossRefactorAether$originalMovementGoalsRemoved
+                && SliderMechanics.shouldTakeOverOriginalMovement(
+                    SliderCombatService.hasArena(slider))) {
+            this.goalSelector.removeAllGoals(goal -> true);
+            this.getNavigation().stop();
+            slider.setMoveDirection(null);
+            slider.setTargetPoint(null);
+            slider.setDeltaMovement(Vec3.ZERO);
+            bossRefactorAether$originalMovementGoalsRemoved = true;
+        }
     }
 
     @Inject(method = "defineSynchedData", at = @At("TAIL"))
@@ -108,11 +167,15 @@ public abstract class SliderMixin implements SliderStateAccess, AttackTelegraphA
     @Inject(method = "tick", at = @At("TAIL"))
     private void bossRefactorAether$tick(CallbackInfo callback) {
         Slider slider = (Slider) (Object) this;
-        SliderCombatService.tick(slider);
-        if (!slider.level().isClientSide()
-                && !bossRefactorAether$statusTitleInitialized) {
-            bossRefactorAether$statusTitleInitialized = true;
-            bossRefactorAether$refreshBossTitle();
+        try {
+            SliderCombatService.tick(slider);
+            if (!slider.level().isClientSide()
+                    && !bossRefactorAether$statusTitleInitialized) {
+                bossRefactorAether$statusTitleInitialized = true;
+                bossRefactorAether$refreshBossTitle();
+            }
+        } finally {
+            this.noPhysics = bossRefactorAether$previousNoPhysics;
         }
     }
 

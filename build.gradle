@@ -241,14 +241,14 @@ tasks.register('verifySenDimsParryEffects') {
     description = 'Ensures every parry-break attack reaches the SenDimS PARRIED effect path.'
     def compatFile = file(
             'src/main/java/com/tonywww/bossrefactoraether/compat/sendims/SenDimsSliderCompat.java')
-        def clientRendererFile = file(
-            'src/main/java/com/tonywww/bossrefactoraether/compat/sendims/client/ExternalLeaderStatusRenderer.java')
+    def clientProviderFile = file(
+            'src/main/java/com/tonywww/bossrefactoraether/compat/sendims/client/ExternalLeaderIndicatorProvider.java')
     def combatFiles = [
             file('src/main/java/com/tonywww/bossrefactoraether/slider/SliderCombatService.java'),
             file('src/main/java/com/tonywww/bossrefactoraether/valkyriequeen/ValkyrieQueenCombatService.java'),
             file('src/main/java/com/tonywww/bossrefactoraether/sunspirit/SunSpiritCombatService.java')
     ]
-    inputs.files([compatFile, clientRendererFile] + combatFiles)
+    inputs.files([compatFile, clientProviderFile] + combatFiles)
     doLast {
         def compat = compatFile.getText('UTF-8')
         def requiredCompatContracts = [
@@ -260,15 +260,15 @@ tasks.register('verifySenDimsParryEffects') {
                 'SunSpiritParryIntegration.install(compat)',
                 '@SubscribeEvent(priority = EventPriority.LOWEST)',
                 'event.setDecision(LeaderParryDecision.PARRY)',
-                'registerClientRenderer()',
+                'registerClientIndicatorProvider()',
                 'SunSpiritCombatService.acceptParry(sunSpirit)',
                 '.SUN_SPIRIT_TIMING.parryRecoveryTicks.get()',
                 'ValkyrieQueenCombatService.acceptParry(queen)',
                 '.VALKYRIE_QUEEN_TIMING.parryRecoveryTicks.get()',
                 'SliderCombatService.acceptParryWithoutBarrier(slider)',
                 'SliderCombatService.consumeBarrierFromParryAttempt(',
-                '? 1',
-                ': BossRefactorAetherConfig.SLIDER_COMBAT.stunTicks.get()'
+                '.SLIDER_COMBAT.parryRecoveryTicks.get()',
+                'Math.max(parryRecoveryTicks,'
         ]
         def missing = requiredCompatContracts.findAll { !compat.contains(it) }
         if (!missing.isEmpty()) {
@@ -297,9 +297,10 @@ tasks.register('verifySenDimsParryEffects') {
         def zeroBarrierBody = zeroBarrierStart >= 0 && zeroBarrierEnd > zeroBarrierStart
             ? sliderService.substring(zeroBarrierStart, zeroBarrierEnd)
             : ''
-        if (!zeroBarrierBody.contains('applyLocalStun(slider)')) {
+        if (!zeroBarrierBody.contains(
+            'SLIDER_COMBAT.parryRecoveryTicks.get()')) {
             throw new GradleException(
-                'Zero-barrier Slider parries must enter the local break state')
+            'Zero-barrier Slider parries must enter local parry recovery')
         }
         def unsynchronized = combatFiles.findAll {
             !it.getText('UTF-8').contains('synchronizeParryWindow(')
@@ -308,31 +309,36 @@ tasks.register('verifySenDimsParryEffects') {
             throw new GradleException(
                     "Parry-window synchronization is missing: ${unsynchronized}")
         }
-        def clientRenderer = clientRendererFile.getText('UTF-8')
+        def clientProvider = clientProviderFile.getText('UTF-8')
         def requiredClientContracts = [
-                'Component.literal("危")',
-                'snapshot.get().profile() != LeaderProfile.EXTERNAL',
-                'snapshot.get().phase() != LeaderPhase.PARRYABLE',
+            'ClientLeaderIndicatorApi.registerExternalWarningProvider(',
+            'ExternalLeaderIndicatorProvider::warningProgress',
                 'ParryIndicatorStyle.isVisible(true, telegraph)',
-                'dangerArgb(telegraph.progress())',
-                'ParryIndicatorStyle.red(progress)',
-                'ParryIndicatorStyle.greenBlue(progress)',
-                'clearIndicatorRings()',
-                'warningTelegraph(entity).ifPresent(',
-                'createIndicatorRing(minecraft, entity, telegraph.progress())',
-                'particle.setLifetime(2)',
-                'particle.remove()',
-                'clearIndicatorRing(entity.getId())',
+            'OptionalDouble.of(telegraph.progress())',
                 'entity instanceof Slider',
                 'entity instanceof ValkyrieQueen',
                 'entity instanceof SunSpirit'
         ]
         def missingClientContracts = requiredClientContracts.findAll {
-            !clientRenderer.contains(it)
+            !clientProvider.contains(it)
         }
         if (!missingClientContracts.isEmpty()) {
             throw new GradleException(
-                    "SenDimS danger-character contracts are missing: ${missingClientContracts}")
+                "SenDimS indicator-provider contracts are missing: ${missingClientContracts}")
+        }
+        def migratedRenderingContracts = [
+            'RenderLivingEvent',
+            'ClientTickEvent',
+            'DustParticleOptions',
+            'Component.literal("危")',
+            'particleEngine'
+        ]
+        def retainedRenderingContracts = migratedRenderingContracts.findAll {
+            clientProvider.contains(it)
+        }
+        if (!retainedRenderingContracts.isEmpty()) {
+            throw new GradleException(
+                "Rendering must be owned by SenDimS: ${retainedRenderingContracts}")
         }
     }
 }

@@ -6,13 +6,10 @@
   "refmap": "bossrefactoraether.refmap.json",
   "mixins": [
     "AbstractValkyrieTeleportAccessor",
-    "CollideGoalMixin",
     "FireCrystalMixin",
     "IceCrystalMixin",
     "LivingEntityDamageBlockAccessor",
     "SliderMixin",
-    "SliderMoveGoalMixin",
-    "SliderPathGoalMixin",
     "SunSpiritMixin",
     "ValkyrieQueenMixin"
   ],

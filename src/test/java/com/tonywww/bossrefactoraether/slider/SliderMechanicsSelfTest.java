@@ -1,17 +1,19 @@
 package com.tonywww.bossrefactoraether.slider;
 
 import com.tonywww.bossrefactoraether.mixin.SliderMixin;
-import com.tonywww.bossrefactoraether.mixin.SliderPathGoalMixin;
 import com.tonywww.bossrefactoraether.mixin.ValkyrieQueenMixin;
+import com.tonywww.bossrefactoraether.config.BossRefactorAetherConfig;
 import com.tonywww.bossrefactoraether.telegraph.AttackTelegraphAccess;
 import com.tonywww.bossrefactoraether.telegraph.AttackTelegraph;
 import com.tonywww.bossrefactoraether.telegraph.AttackTelegraphShape;
 import com.tonywww.bossrefactoraether.telegraph.ParryIndicatorStyle;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.core.Direction;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.UUID;
 
@@ -28,20 +30,21 @@ public final class SliderMechanicsSelfTest {
         verifyChainConstants();
         verifyGlidePowerRules();
         verifyDashDistanceClamping();
-        verifyBlockBreakSampling();
-        verifySkillBlockBreakCompatibility();
+        verifyDungeonLifecycle();
+        verifyStandaloneArena();
         verifyDashGeometry();
         verifyPerimeterMovementGeometry();
         verifyVerticalAlignment();
         verifyArenaStateLifecycle();
-        verifyOriginalMovementMode();
+        verifyOriginalMovementSuppression();
+        verifyBlockCollisionBypass();
         verifyParryWindows();
         verifyChargedPickaxeTracking();
         verifyShieldBlockDeduplication();
         verifyStunPersistence();
         verifyTelegraphMixinContracts();
         verifyTelegraphProgress();
-        verifyParryIndicatorColor();
+        verifyParryIndicatorVisibility();
     }
 
     private static void verifyClamping() {
@@ -62,22 +65,27 @@ public final class SliderMechanicsSelfTest {
         checkClose(SliderMechanics.combatMultiplier(true, 10), 1.44,
                 "phase two and ten glide layers must multiply to 1.44");
         checkClose(SliderMechanics.configuredDamage(
-                SliderMechanics.DEFAULT_NORMAL_BASE_DAMAGE,
-                6.0,
-                SliderMechanics.DEFAULT_NORMAL_ATTACK_DAMAGE_MULTIPLIER,
-                true,
-                10), 11.52,
-                "normal collision damage must use all multipliers");
-        checkClose(SliderMechanics.configuredDamage(
                 SliderMechanics.DEFAULT_CHAIN_DASH_BASE_DAMAGE,
                 6.0,
                 SliderMechanics.DEFAULT_CHAIN_DASH_ATTACK_DAMAGE_MULTIPLIER,
                 true,
                 10), 12.96,
                 "chain damage must use 150 percent attack power and all multipliers");
+        checkClose(SliderMechanics.configuredDamage(
+                SliderMechanics.DEFAULT_NORMAL_COLLISION_BASE_DAMAGE,
+                6.0,
+                SliderMechanics.DEFAULT_NORMAL_COLLISION_ATTACK_DAMAGE_MULTIPLIER,
+                false,
+                0), 8.0,
+                "normal patrol collision must combine flat and full attack damage");
         checkClose(SliderMechanics.configuredDamage(2.0, 6.0, 0.5, false, 0), 5.0,
                 "configured damage must add base and attack damage contribution");
-        checkClose(SliderMechanics.chainSpeed(2.5, true, 10), 4.608,
+        double expectedChainSpeed = 2.5
+                * SliderMechanics.DEFAULT_BASE_SPEED_MULTIPLIER
+                * SliderMechanics.DEFAULT_PHASE_TWO_SPEED_MULTIPLIER
+                * (1.0 + SliderMechanics.DEFAULT_GLIDE_POWER_SPEED_PER_LAYER * 10)
+                * SliderMechanics.DEFAULT_CHAIN_SPEED_MULTIPLIER;
+        checkClose(SliderMechanics.chainSpeed(2.5, true, 10), expectedChainSpeed,
                 "chain speed must be 60 percent faster after combat multipliers");
         checkClose(SliderMechanics.speedMultiplier(
                         false,
@@ -85,16 +93,18 @@ public final class SliderMechanicsSelfTest {
                         SliderMechanics.DEFAULT_BASE_SPEED_MULTIPLIER,
                         SliderMechanics.DEFAULT_PHASE_TWO_SPEED_MULTIPLIER,
                         SliderMechanics.DEFAULT_GLIDE_POWER_SPEED_PER_LAYER),
-                0.8,
-                "an unpowered phase-one strike must stay close to original Aether speed");
+                SliderMechanics.DEFAULT_BASE_SPEED_MULTIPLIER,
+                "an unpowered phase-one strike must use the configured base multiplier");
         checkClose(SliderMechanics.speedMultiplier(
                         true,
                         10,
                         SliderMechanics.DEFAULT_BASE_SPEED_MULTIPLIER,
                         SliderMechanics.DEFAULT_PHASE_TWO_SPEED_MULTIPLIER,
                         SliderMechanics.DEFAULT_GLIDE_POWER_SPEED_PER_LAYER),
-                1.152,
-                "maximum phase and glide bonuses must stay close to original Aether speed");
+                SliderMechanics.DEFAULT_BASE_SPEED_MULTIPLIER
+                        * SliderMechanics.DEFAULT_PHASE_TWO_SPEED_MULTIPLIER
+                        * (1.0 + SliderMechanics.DEFAULT_GLIDE_POWER_SPEED_PER_LAYER * 10),
+                "maximum phase and glide bonuses must multiply the configured base speed");
     }
 
     private static void verifyChainConstants() {
@@ -102,21 +112,31 @@ public final class SliderMechanicsSelfTest {
                 "phase one must use two base dashes");
         checkEqual(SliderMechanics.PHASE_TWO_DASHES, 3,
                 "phase two must use three base dashes");
-        checkEqual(SliderMechanics.CHAIN_GLIDE_POWER_COST, 10,
-                "chain skill must consume ten glide power");
+        checkEqual(SliderMechanics.CHAIN_GLIDE_POWER_COST, 6,
+                "chain skill must consume six glide power");
+        checkEqual(SliderMechanics.PARRY_RECOVERY_TICKS, 60,
+                "successful parries must stop Slider for three seconds");
         checkEqual(SliderMechanics.STUN_TICKS, 100,
                 "barrier break stun must last five seconds");
         checkEqual(SliderMechanics.SHIELD_COOLDOWN_TICKS, 60,
                 "successful blocks must disable the shield for three seconds");
+        checkEqual(SliderMechanics.PERIMETER_CORNER_PAUSE_TICKS, 15,
+                "normal perimeter movement must pause 15 ticks at each corner");
         checkClose(SliderMechanics.DEFAULT_CHAIN_DASH_ATTACK_DAMAGE_MULTIPLIER, 1.5,
                 "chain dashes must deal 150 percent attack power by default");
+        checkClose(SliderMechanics.DEFAULT_NORMAL_COLLISION_BASE_DAMAGE, 2.0,
+                "normal patrol collision must retain its flat damage contribution");
+        checkClose(
+                SliderMechanics.DEFAULT_NORMAL_COLLISION_ATTACK_DAMAGE_MULTIPLIER,
+                1.0,
+                "normal patrol collision must use full attack damage by default");
     }
 
     private static void verifyGlidePowerRules() {
-        check(SliderMechanics.glidePowerAfterChainCost(10, false) == 0,
-                "phase one must spend all ten glide power");
-        check(SliderMechanics.glidePowerAfterChainCost(10, true) == 2,
-                "phase two must retain its two-layer minimum after spending");
+        check(SliderMechanics.glidePowerAfterChainCost(10, false) == 4,
+                "phase one must spend six glide power");
+        check(SliderMechanics.glidePowerAfterChainCost(10, true) == 4,
+                "phase two must retain the glide power left after spending");
         check(SliderMechanics.minimumGlidePower(true, false) == 2,
                 "phase two must maintain at least two glide power");
         check(SliderMechanics.minimumGlidePower(true, true) == 0,
@@ -131,6 +151,12 @@ public final class SliderMechanicsSelfTest {
                 "later phase-two dashes must remain blockable");
         check(!SliderMechanics.isUnblockableChainDash(false, 0),
                 "phase-one dashes must remain blockable");
+        check(SliderMechanics.hasGlidePowerForSkill(10, 10, 10),
+                "full Glide Power must allow Continuous Glide");
+        check(!SliderMechanics.hasGlidePowerForSkill(9, 10, 10),
+                "Continuous Glide must wait until its resource cost is available");
+        check(SliderMechanics.effectiveGlidePowerCost(6, 10) == 6,
+                "a configured cost above the maximum must clamp to the attainable maximum");
     }
 
     private static void verifyDashDistanceClamping() {
@@ -146,49 +172,53 @@ public final class SliderMechanicsSelfTest {
                 "skill positioning must clamp reach to the configured distance");
     }
 
-    private static void verifyBlockBreakSampling() {
-        check(SliderMechanics.blockBreakSampleCount(0.01) == 1,
-                "short movement must use one block-breaking sample");
-        check(SliderMechanics.blockBreakSampleCount(1.0) == 4,
-                "movement must be sampled every quarter block");
-        check(SliderMechanics.blockBreakSampleCount(100.0)
-                        == SliderMechanics.MAX_BLOCK_BREAK_SAMPLES,
-                "block-breaking samples must have a performance cap");
+    private static void verifyDungeonLifecycle() {
+        check(SliderMechanics.shouldResetEmptyBossRoom(true, true),
+                "an active boss fight must reset after its last dungeon player leaves");
+        check(!SliderMechanics.shouldResetEmptyBossRoom(true, false),
+                "an active boss fight with tracked players must continue");
+        check(!SliderMechanics.shouldResetEmptyBossRoom(false, true),
+                "a non-combat Slider must not reset solely because the room is empty");
     }
 
-        private static void verifySkillBlockBreakCompatibility() {
-        check(SliderMechanics.isBlockBreakingAllowed(true, false, true),
-                "boss combat may explicitly bypass a modpack mob-griefing denial");
-        check(!SliderMechanics.isBlockBreakingAllowed(true, false, false),
-                "mob-griefing denial must remain effective when compatibility is disabled");
-        check(!SliderMechanics.isBlockBreakingAllowed(false, false, true),
-                "mob-griefing bypass must be limited to an active boss fight");
-        check(SliderMechanics.isBlockBreakingAllowed(false, true, false),
-                "vanilla mob-griefing permission must continue to allow block breaking");
-        check(!SliderMechanics.shouldBreakBlocksAlongMovement(false),
-                "perimeter movement must preserve arena wall collisions");
-        check(SliderMechanics.shouldBreakBlocksAlongMovement(true),
-                "Continuous Glide must retain movement block breaking");
-        check(SliderMechanics.canDestroyMovementBlock(
-                        true, false, true, -1.0F, false),
-                "force-breakable locked blocks must override ordinary protection rules");
-        check(!SliderMechanics.canDestroyMovementBlock(
-                        true, true, true, -1.0F, false),
-                "force-breakable blocks must not override block entity protection");
-        check(!SliderMechanics.canDestroyMovementBlock(
-                        false, false, true, 2.0F, true),
-                "ordinary protected blocks must remain unbreakable");
-        check(!SliderMechanics.canDestroyMovementBlock(
-                        false, false, false, -1.0F, true),
-                "ordinary negative-hardness blocks must remain unbreakable");
-        check(!SliderMechanics.canDestroyMovementBlock(
-                        false, false, false, 2.0F, false),
-                "ordinary entity-resistant blocks must remain unbreakable");
-        check(SliderMechanics.canDestroyMovementBlock(
-                        false, false, false, 2.0F, true),
-                "ordinary destroyable blocks must remain breakable");
-        checkClose(SliderMechanics.explicitMovementSpeed(2.5, 0.8, 1.6), 3.2,
-                "movement multipliers must apply to explicit steps without changing base speed");
+    private static void verifyStandaloneArena() {
+        Vec3 center = new Vec3(12.5, 80.0, -4.5);
+        AABB room = SliderMechanics.standaloneRoomBounds(center);
+        checkClose(room.minX,
+                center.x - SliderMechanics.STANDALONE_ROOM_HORIZONTAL_RADIUS,
+                "a summoned Slider room must extend its configured radius west");
+        checkClose(room.maxX,
+                center.x + SliderMechanics.STANDALONE_ROOM_HORIZONTAL_RADIUS,
+                "a summoned Slider room must extend its configured radius east");
+        checkClose(room.minY,
+                center.y - SliderMechanics.STANDALONE_ROOM_VERTICAL_RADIUS,
+                "a summoned Slider room must extend its configured radius downward");
+        checkClose(room.maxY,
+                center.y + SliderMechanics.STANDALONE_ROOM_VERTICAL_RADIUS,
+                "a summoned Slider room must extend its configured radius upward");
+        checkClose(room.minZ,
+                center.z - SliderMechanics.STANDALONE_ROOM_HORIZONTAL_RADIUS,
+                "a summoned Slider room must extend its configured radius north");
+        checkClose(room.maxZ,
+                center.z + SliderMechanics.STANDALONE_ROOM_HORIZONTAL_RADIUS,
+                "a summoned Slider room must extend its configured radius south");
+
+        SliderCombatState state = new SliderCombatState();
+        state.initializeStandaloneArena(center);
+        state.initializeStandaloneArena(center.add(20.0, 0.0, 0.0));
+        check(state.hasStandaloneArena(),
+                "a summoned Slider must retain an independent arena");
+        check(state.getStandaloneArenaCenter().equals(center),
+                "independent arena initialization must preserve the summon point");
+
+        CompoundTag tag = new CompoundTag();
+        state.write(tag, 1000L);
+        SliderCombatState loaded = new SliderCombatState();
+        loaded.read(tag, 2000L);
+        check(loaded.hasStandaloneArena(),
+                "a summoned Slider arena must survive save and reload");
+        check(loaded.getStandaloneArenaCenter().equals(center),
+                "a reloaded summoned Slider must retain its original room center");
     }
 
     private static void verifyDashGeometry() {
@@ -196,6 +226,12 @@ public final class SliderMechanicsSelfTest {
                 "the larger X separation must produce an X attack lane");
         check(SliderMechanics.chooseAttackAxis(2.0, -8.0) == Direction.Axis.Z,
                 "the larger Z separation must produce a Z attack lane");
+        check(SliderMechanics.chooseReachableAttackAxis(
+                        1.0, 1.5, 1.0, 2.0) == Direction.Axis.X,
+                "a low-speed dash must choose the only axis that can actually reach");
+        check(SliderMechanics.chooseReachableAttackAxis(
+                        1.0, 0.75, 2.0, 2.0) == Direction.Axis.X,
+                "two reachable axes must retain the larger-offset tie breaker");
         Vec3 xMotion = SliderMechanics.axisMotion(Direction.Axis.X, -0.75);
         checkClose(xMotion.x, -0.75, "X-axis movement must retain its signed step");
         checkClose(xMotion.z, 0.0, "X-axis movement must not leak onto Z");
@@ -203,26 +239,58 @@ public final class SliderMechanicsSelfTest {
                 "axis movement must clamp to its maximum step");
         checkClose(SliderMechanics.stepToward(4.8, 5.0, 0.75), 0.2,
                 "axis movement must not overshoot its target");
+        AABB actualSweep = SliderMechanics.actualMovementSweep(
+                new AABB(1.0, 0.0, -1.0, 3.0, 2.0, 1.0),
+                Vec3.ZERO, new Vec3(2.0, 0.0, 0.0), 0.25);
+        checkClose(actualSweep.minX, -1.25,
+                "dash collision sweep must begin at the actual previous position");
+        checkClose(actualSweep.maxX, 3.25,
+                "dash collision sweep must end at the collision-clipped position");
     }
 
     private static void verifyVerticalAlignment() {
-        check(!SliderMechanics.isCenterHeightAligned(
+        check(!SliderMechanics.hasVerticalAttackOverlap(
                         0.0, 2.0, 4.0, 6.0, 0.1),
-                "different center heights must trigger vertical alignment");
-        check(SliderMechanics.isCenterHeightAligned(
-                        0.0, 2.0, 0.1, 2.1, 0.1),
-                "center heights inside tolerance must count as equal");
-        checkClose(SliderMechanics.centerHeightAlignmentStep(
-                        0.0, 2.0, 4.0, 6.0, 0.5), 0.5,
-                "vertical alignment must move upward toward the target center");
-        checkClose(SliderMechanics.centerHeightAlignmentStep(
-                        4.0, 6.0, 0.0, 2.0, 0.5), -0.5,
-                "vertical alignment must move downward toward the target center");
+                "vertically separated hitboxes must trigger alignment");
+        check(SliderMechanics.hasVerticalAttackOverlap(
+                        0.0, 2.0, 0.0, 1.8, 0.1),
+                "same-floor entities must already be in attack height despite different centers");
+        checkClose(SliderMechanics.verticalAttackAlignmentStep(
+                        0.0, 2.0, 4.0, 6.0, 0.1, 0.5), 0.5,
+                "vertical alignment must move upward toward attack overlap");
+        checkClose(SliderMechanics.verticalAttackAlignmentStep(
+                        4.0, 6.0, 0.0, 2.0, 0.1, 0.5), -0.5,
+                "vertical alignment must move downward toward attack overlap");
+        checkClose(SliderMechanics.verticalAttackAlignmentStep(
+                        0.0, 2.0, 2.05, 3.85, 0.1, 0.5), 0.0,
+                "vertical tolerance must avoid unnecessary movement into the floor");
     }
 
     private static void verifyPerimeterMovementGeometry() {
-        checkClose(SliderMechanics.perimeterInset(2.0, 0.35), 2.35,
-                "perimeter inset must include the wall, entity half-width, and clearance");
+        double perimeterInset = SliderMechanics.perimeterInset(2.0, 0.35);
+        checkClose(perimeterInset, SliderMechanics.ARENA_RADIUS_REDUCTION,
+                "arena radius reduction must be the total ordinary perimeter inset");
+        checkClose(SliderMechanics.perimeterInset(2.0, 4.0), 6.0,
+                "collision clearance must override an unsafe radius reduction");
+        double reducedMinimum = SliderMechanics.insetMinimum(
+                -SliderMechanics.STANDALONE_ROOM_HORIZONTAL_RADIUS,
+                SliderMechanics.STANDALONE_ROOM_HORIZONTAL_RADIUS,
+                perimeterInset);
+        double reducedMaximum = SliderMechanics.insetMaximum(
+                -SliderMechanics.STANDALONE_ROOM_HORIZONTAL_RADIUS,
+                SliderMechanics.STANDALONE_ROOM_HORIZONTAL_RADIUS,
+                perimeterInset);
+        double expectedMovementRadius = SliderMechanics.STANDALONE_ROOM_HORIZONTAL_RADIUS
+                - SliderMechanics.ARENA_RADIUS_REDUCTION;
+        checkClose(reducedMinimum, -expectedMovementRadius,
+                "the reduced arena minimum must match the theoretical movement radius");
+        checkClose(reducedMaximum, expectedMovementRadius,
+                "the reduced arena maximum must match the theoretical movement radius");
+        checkClose((reducedMinimum + reducedMaximum) * 0.5, 0.0,
+                "reducing the arena radius must preserve the room center");
+        checkClose((reducedMaximum - reducedMinimum) * 0.5,
+                expectedMovementRadius,
+                "movement radius must equal room radius minus the configured reduction");
         checkClose(SliderMechanics.insetMinimum(0.0, 10.0, 2.0), 2.0,
                 "perimeter inset must keep the Slider inside the west wall");
         checkClose(SliderMechanics.insetMaximum(0.0, 10.0, 2.0), 8.0,
@@ -246,6 +314,14 @@ public final class SliderMechanicsSelfTest {
                 "clockwise patrol must turn from north to east");
         check(SliderMechanics.nextPerimeterEdge(Direction.NORTH, false) == Direction.WEST,
                 "counterclockwise patrol must turn from north to west");
+        long pauseEnd = SliderMechanics.perimeterCornerPauseEnd(
+                100L, SliderMechanics.PERIMETER_CORNER_PAUSE_TICKS);
+        check(pauseEnd == 115L,
+                "corner pause must end exactly 15 ticks after arrival");
+        check(SliderMechanics.isPerimeterCornerPauseActive(114L, pauseEnd),
+                "corner pause must retain its final stationary tick");
+        check(!SliderMechanics.isPerimeterCornerPauseActive(115L, pauseEnd),
+                "corner patrol may resume at the 15-tick deadline");
         Direction clockwiseEdge = Direction.NORTH;
         Direction counterclockwiseEdge = Direction.NORTH;
         Direction[] clockwiseSequence = {
@@ -265,6 +341,29 @@ public final class SliderMechanicsSelfTest {
         Vec3 step = SliderMechanics.horizontalStepToward(0.0, 0.0, 3.0, 4.0, 2.0);
         checkClose(step.x, 1.2, "horizontal edge approach must clamp its X step");
         checkClose(step.z, 1.6, "horizontal edge approach must clamp its Z step");
+        double minimum = 2.35;
+        double maximum = 13.65;
+        double eastDash = SliderMechanics.boundedAxisDashDistance(
+                minimum, 1.0, minimum, maximum, 12.0);
+        checkClose(eastDash, 11.3,
+                "a dash across the arena must stop at the opposite safe edge");
+        checkClose(minimum + eastDash, maximum,
+                "the clamped east dash endpoint must remain inside the arena");
+        checkClose(SliderMechanics.boundedAxisDashDistance(
+                        maximum, -1.0, minimum, maximum, 12.0), 11.3,
+                "westward dashes must use the same safe arena width");
+        checkClose(SliderMechanics.boundedAxisDashDistance(
+                        8.0, 1.0, minimum, maximum, 12.0), 5.65,
+                "a dash starting at the center must stop at the requested side");
+        checkClose(SliderMechanics.boundedAxisDashDistance(
+                        maximum, 1.0, minimum, maximum, 12.0), 0.0,
+                "an outward dash at the safe edge must not leave the arena");
+        check(!SliderMechanics.hasMovementProgress(Vec3.ZERO,
+                        new Vec3(0.00001, 0.0, 0.0)),
+                "collision jitter must not reset arena stall detection");
+        check(SliderMechanics.hasMovementProgress(Vec3.ZERO,
+                        new Vec3(0.001, 0.0, 0.0)),
+                "real arena displacement must reset stall detection");
         check(SliderMechanics.canHitWithAxisDash(
                         0.0, 0.0, 8.0, 0.75, 12.0, 1.0),
                 "a target inside an X-axis dash corridor must be hittable");
@@ -277,32 +376,35 @@ public final class SliderMechanicsSelfTest {
         check(!SliderMechanics.canHitWithAxisDash(
                         0.0, 0.0, 13.0, 0.0, 12.0, 1.0),
                 "a target beyond dash distance must not trigger charging");
+        check(!SliderMechanics.canHitWithAxisDash(
+                        0.0, 0.0, 8.0, 0.5, 7.0, 12.0, 1.0),
+                "axis-specific arena bounds must reject an overlong X dash");
+        checkClose(SliderMechanics.firstAxisDashIntersection(
+                        0.0, 0.0, 10.0, 0.0,
+                        5.0, 4.0, 6.0, 1.5),
+                0.35,
+                "fast patrol movement must stop at the first Z-dash lane intersection");
+        check(Double.isNaN(SliderMechanics.firstAxisDashIntersection(
+                        0.0, 0.0, 10.0, 0.0,
+                        5.0, 8.0, 6.0, 1.5)),
+                "patrol movement outside both attack rectangles must remain unclamped");
+        checkClose(SliderMechanics.firstAxisDashIntersection(
+                        10.0, 0.0, 0.0, 0.0,
+                        5.0, 4.0, 6.0, 1.5),
+                0.35,
+                "reverse patrol movement must use its own earliest lane intersection");
         check(Arrays.equals(
                         SliderMovementPhase.values(),
                         new SliderMovementPhase[] {
                                 SliderMovementPhase.IDLE,
                                 SliderMovementPhase.RETURNING_TO_EDGE,
                                 SliderMovementPhase.PATROLLING,
+                                SliderMovementPhase.PAUSING_AT_CORNER,
                                 SliderMovementPhase.VERTICAL_ALIGNING}),
-                "base movement must contain only edge return, patrol, and height alignment");
+                "base movement must contain only return, patrol, corner pause, and alignment");
     }
 
-    private static void verifyOriginalMovementMode() {
-        check(!SliderMechanics.shouldOverrideOriginalMovement(
-                        false, false, false, false),
-                "a sleeping Slider without a dungeon must allow original goals");
-        check(!SliderMechanics.shouldOverrideOriginalMovement(
-                        true, false, false, false),
-                "an awakened Slider without room geometry must use original movement as fallback");
-        check(SliderMechanics.shouldOverrideOriginalMovement(
-                        true, true, false, false),
-                "an awakened Slider with room geometry must use perimeter movement");
-        check(SliderMechanics.shouldOverrideOriginalMovement(
-                        false, false, true, false),
-                "stun must still freeze original movement");
-        check(SliderMechanics.shouldOverrideOriginalMovement(
-                        false, false, false, true),
-                "an active Continuous Glide must retain movement control");
+    private static void verifyOriginalMovementSuppression() {
         String mixinConfig;
         try (var stream = SliderMechanicsSelfTest.class.getClassLoader()
                 .getResourceAsStream("bossrefactoraether.mixins.json")) {
@@ -311,21 +413,70 @@ public final class SliderMechanicsSelfTest {
         } catch (java.io.IOException exception) {
             throw new AssertionError("failed to read the runtime mixin config", exception);
         }
-        check(mixinConfig.contains("SliderPathGoalMixin"),
-                "Aether path goals must be suppressed while perimeter movement owns navigation");
-        check(Arrays.stream(SliderPathGoalMixin.class.getDeclaredMethods())
+        check(!mixinConfig.contains("SliderPathGoalMixin")
+                        && !mixinConfig.contains("SliderMoveGoalMixin")
+                        && !mixinConfig.contains("CollideGoalMixin"),
+                "Slider movement suppression must not depend on patching Aether goal classes");
+        check(!SliderMechanics.shouldTakeOverOriginalMovement(false),
+                "a Slider without initialized arena geometry must retain original movement");
+        check(SliderMechanics.shouldTakeOverOriginalMovement(true),
+                "a Slider with tracker or standalone arena geometry must use perimeter movement");
+        check(SliderMechanics.shouldDiscardExternalMovementOnAwaken(
+                        false, true, true),
+                "arena takeover must discard movement left on the awakening edge");
+        check(!SliderMechanics.shouldDiscardExternalMovementOnAwaken(
+                        true, true, true),
+                "ordinary awake ticks must preserve theoretical arena movement");
+        check(!SliderMechanics.shouldDiscardExternalMovementOnAwaken(
+                        false, true, false),
+                "awakening without initialized arena geometry must preserve original movement");
+        check(!SliderMechanics.shouldDiscardExternalMovementOnAwaken(
+                        false, false, true),
+                "a sleeping Slider must not enter arena movement");
+        check(Arrays.stream(SliderMixin.class.getDeclaredMethods())
                         .anyMatch(method -> method.getName().equals(
-                                "bossRefactorAether$stopPathing")),
-                "an already-running Aether path goal must stop when arena movement takes control");
-        check(mixinConfig.contains("SliderMoveGoalMixin"),
-                "the original move goal must remain suppressible during arena movement");
-        check(mixinConfig.contains("CollideGoalMixin"),
-                "the original collision bridge must retain shield and damage mechanics");
+                                "bossRefactorAether$removeOriginalMovementGoals")),
+                "SliderMixin must remove original movement goals from the owning selector");
         check(Arrays.stream(SliderMixin.class.getDeclaredMethods())
                         .filter(method -> method.getName().equals(
                                 "bossRefactorAether$removeToolRestriction"))
                         .count() == 1,
                 "Slider damage access must remain controlled by one room-independent hook");
+    }
+
+    private static void verifyBlockCollisionBypass() {
+        check(Arrays.stream(SliderMixin.class.getDeclaredMethods())
+                        .anyMatch(method -> method.getName().equals(
+                                "bossRefactorAether$removeBlockBreakingGoal")),
+                "SliderMixin must remove Aether's original CrushGoal");
+        check(Arrays.stream(SliderMixin.class.getDeclaredMethods())
+                        .anyMatch(method -> method.getName().equals(
+                                "bossRefactorAether$beginBlockCollisionBypass")),
+                "Slider movement must bypass block collision clipping");
+        byte[] serviceClass;
+        try (var stream = SliderMechanicsSelfTest.class.getClassLoader()
+                .getResourceAsStream(
+                        "com/tonywww/bossrefactoraether/slider/SliderCombatService.class")) {
+            check(stream != null, "SliderCombatService class must be available to tests");
+            serviceClass = stream.readAllBytes();
+        } catch (java.io.IOException exception) {
+            throw new AssertionError("failed to read SliderCombatService bytecode", exception);
+        }
+        check(!new String(serviceClass, StandardCharsets.ISO_8859_1)
+                        .toLowerCase().contains("destroyblock"),
+                "Slider combat service must not retain block-destruction methods");
+        check(Arrays.stream(BossRefactorAetherConfig.SliderCombatConfig.class
+                        .getDeclaredFields())
+                        .map(field -> field.getName().toLowerCase())
+                        .noneMatch(name -> name.contains("blockbreak")),
+                "Slider combat config must not retain block-breaking settings");
+        ClassLoader loader = SliderMechanicsSelfTest.class.getClassLoader();
+        check(loader.getResource(
+                        "data/bossrefactoraether/tags/blocks/slider_force_breakable.json") == null,
+                "the obsolete force-breakable block tag must not be packaged");
+        check(loader.getResource(
+                        "data/bossrefactoraether/tags/blocks/slider_unbreakable.json") == null,
+                "the obsolete Slider unbreakable block tag must not be packaged");
     }
 
     private static void verifyArenaStateLifecycle() {
@@ -334,17 +485,23 @@ public final class SliderMechanicsSelfTest {
         state.perimeterEdge = Direction.EAST;
         state.patrolClockwise = true;
         state.patrolDirectionInitialized = true;
+        state.patrolEdgeStarted = true;
+        state.patrolCornerResumeGameTime = 115L;
+        state.patrolCollisionPositionInitialized = true;
+        state.patrolCollisionPreviousPosition = new Vec3(2.0, 0.0, 3.0);
+        state.patrolCollisionContacts.add(UUID.randomUUID());
         state.skillPhase = SliderSkillPhase.DASHING;
-        state.skillQueued = true;
 
-        check(state.hasArenaMovementState(),
-                "active perimeter movement must retain arena control state");
         state.resetSkillTransient();
         check(state.movementPhase == SliderMovementPhase.PATROLLING,
                 "finishing a skill must preserve arena movement state");
         check(state.perimeterEdge == Direction.EAST && state.patrolClockwise,
                 "finishing a skill must preserve patrol direction");
-        check(state.skillPhase == SliderSkillPhase.IDLE && !state.skillQueued,
+        check(state.patrolEdgeStarted,
+                "finishing a skill must preserve completed-edge accounting until return begins");
+        check(state.patrolCornerResumeGameTime == 115L,
+                "finishing a skill must preserve an active corner pause deadline");
+        check(state.skillPhase == SliderSkillPhase.IDLE,
                 "finishing a skill must clear only skill state");
 
         state.resetTransient();
@@ -352,8 +509,17 @@ public final class SliderMechanicsSelfTest {
                 "deactivating the Slider must clear arena movement state");
         check(!state.patrolDirectionInitialized,
                 "a new activation must choose a fresh patrol direction");
-        check(!state.hasArenaMovementState(),
-                "releasing arena movement must allow original movement to resume");
+        check(!state.patrolEdgeStarted,
+                "a new activation must not count its first partial edge as complete");
+        check(state.patrolCornerResumeGameTime == 0L,
+                "a new activation must clear any old corner pause deadline");
+        check(!state.patrolCollisionPositionInitialized
+                        && state.patrolCollisionPreviousPosition.equals(Vec3.ZERO)
+                        && state.patrolCollisionContacts.isEmpty(),
+                "a new activation must clear normal patrol collision tracking");
+        check(state.movementStallTicks == 0
+                        && state.monitoredMovementPhase == SliderMovementPhase.IDLE,
+                "a new activation must clear movement stall tracking");
     }
 
     private static void verifyParryWindows() {
@@ -368,6 +534,8 @@ public final class SliderMechanicsSelfTest {
         state.movementPhase = SliderMovementPhase.IDLE;
         state.skillPhase = SliderSkillPhase.CHARGING;
         state.currentDashParryable = true;
+        check(state.requiresLiveTarget(),
+                "Continuous Glide charging must require a live target");
         check(state.isCurrentAttackParryable(),
                 "parryable Continuous Glide charge must expose a warning window");
         state.currentDashParryable = false;
@@ -376,11 +544,16 @@ public final class SliderMechanicsSelfTest {
 
         state.skillPhase = SliderSkillPhase.DASHING;
         state.currentDashParryable = true;
+        check(!state.requiresLiveTarget(),
+                "an active dash must finish its locked route after losing the target");
         check(state.isCurrentAttackParryable(),
                 "ordinary chain dashes must expose a parry window");
         state.currentDashParryable = false;
         check(!state.isCurrentAttackParryable(),
                 "the first phase-two chain dash must not expose a parry window");
+        state.skillPhase = SliderSkillPhase.DASH_INTERVAL;
+        check(state.requiresLiveTarget(),
+                "a dash interval must cancel before starting without a live target");
     }
 
     private static void verifyChargedPickaxeTracking() {
@@ -415,6 +588,21 @@ public final class SliderMechanicsSelfTest {
     }
 
     private static void verifyStunPersistence() {
+        SliderCombatState parried = new SliderCombatState();
+        check(parried.extendStun(1000L, SliderMechanics.PARRY_RECOVERY_TICKS) == 60,
+                "a successful parry must start a 60-tick recovery");
+        check(parried.isStunned(1059L),
+                "parry recovery must retain its final active tick");
+        check(!parried.isStunned(1060L),
+                "parry recovery must expire after 60 ticks");
+
+        SliderCombatState finalBarrierBreak = new SliderCombatState();
+        check(finalBarrierBreak.extendStun(1000L, SliderMechanics.STUN_TICKS) == 100,
+                "a final barrier break must start the longer stun");
+        check(finalBarrierBreak.extendStun(
+                1000L, SliderMechanics.PARRY_RECOVERY_TICKS) == 100,
+                "parry recovery must not shorten a final barrier-break stun");
+
         SliderCombatState original = new SliderCombatState();
         original.stunEnd = 1100L;
         CompoundTag tag = new CompoundTag();
@@ -471,21 +659,7 @@ public final class SliderMechanicsSelfTest {
                                 "progress updates must still update fill progress");
                     }
 
-    private static void verifyParryIndicatorColor() {
-        checkClose(ParryIndicatorStyle.red(0.0F), 1.0,
-                "parry indicator must begin with SenDimS white-red channel");
-        checkClose(ParryIndicatorStyle.greenBlue(0.0F), 1.0,
-                "parry indicator must begin white");
-        checkClose(ParryIndicatorStyle.red(0.5F), 0.65,
-                "parry indicator red must match half windup progress");
-        checkClose(ParryIndicatorStyle.greenBlue(0.5F), 0.55,
-                "parry indicator green-blue must match half windup progress");
-        checkClose(ParryIndicatorStyle.red(1.0F), 0.30,
-                "parry indicator must end at SenDimS dark red");
-        checkClose(ParryIndicatorStyle.greenBlue(1.0F), 0.10,
-                "parry indicator must end at SenDimS dark red");
-        checkClose(ParryIndicatorStyle.red(2.0F), 0.30,
-                "parry indicator progress must clamp above one");
+    private static void verifyParryIndicatorVisibility() {
         AttackTelegraph active = new AttackTelegraph(
                 AttackTelegraphShape.CORRIDOR,
                 1.0F, 0.0F, 6.0F, 1.0F, 0.0F, 0.5F);

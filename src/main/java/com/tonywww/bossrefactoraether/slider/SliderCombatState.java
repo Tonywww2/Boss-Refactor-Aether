@@ -13,20 +13,36 @@ public final class SliderCombatState {
     private static final String PHASE_TWO_KEY = "bossrefactoraether.slider.phase_two";
     private static final String STUN_REMAINING_KEY = "bossrefactoraether.slider.stun_remaining";
     private static final String LEGACY_STUN_END_KEY = "bossrefactoraether.slider.stun_end";
+        private static final String STANDALONE_ARENA_KEY =
+            "bossrefactoraether.slider.standalone_arena";
+        private static final String STANDALONE_ARENA_X_KEY =
+            "bossrefactoraether.slider.standalone_arena_x";
+        private static final String STANDALONE_ARENA_Y_KEY =
+            "bossrefactoraether.slider.standalone_arena_y";
+        private static final String STANDALONE_ARENA_Z_KEY =
+            "bossrefactoraether.slider.standalone_arena_z";
 
     int barrierLayers = SliderMechanics.MAX_BARRIER_LAYERS;
     boolean configuredStateInitialized;
     boolean phaseTwo;
     long stunEnd;
+    boolean standaloneArenaInitialized;
+    Vec3 standaloneArenaCenter = Vec3.ZERO;
 
     SliderMovementPhase movementPhase = SliderMovementPhase.IDLE;
     SliderMovementPhase resumeMovementPhase = SliderMovementPhase.RETURNING_TO_EDGE;
     Direction perimeterEdge = Direction.NORTH;
     boolean patrolClockwise;
     boolean patrolDirectionInitialized;
-    int movementTicks;
-    boolean skillQueued;
+    boolean patrolEdgeStarted;
+    long patrolCornerResumeGameTime;
+    SliderMovementPhase monitoredMovementPhase = SliderMovementPhase.IDLE;
+    Vec3 movementProgressPosition = Vec3.ZERO;
+    int movementStallTicks;
+    long nextVerticalAlignmentGameTime;
     SliderSkillPhase skillPhase = SliderSkillPhase.IDLE;
+    int skillGlidePower;
+    boolean skillPhaseTwo;
     int phaseTicks;
     int completedDashes;
     int totalDashes;
@@ -35,7 +51,12 @@ public final class SliderCombatState {
     boolean parryWindowOpen;
     Vec3 dashDirection = Vec3.ZERO;
     Vec3 dashStart = Vec3.ZERO;
+    Vec3 dashPreviousPosition = Vec3.ZERO;
+    double dashDistanceLimit;
     final Set<UUID> dashHits = new HashSet<>();
+    boolean patrolCollisionPositionInitialized;
+    Vec3 patrolCollisionPreviousPosition = Vec3.ZERO;
+    final Set<UUID> patrolCollisionContacts = new HashSet<>();
     long shieldBlockGameTime = Long.MIN_VALUE;
     final Set<UUID> shieldBlockPlayers = new HashSet<>();
     long chargedPickaxeGameTime = Long.MIN_VALUE;
@@ -53,21 +74,44 @@ public final class SliderCombatState {
         return stunEnd > gameTime;
     }
 
+    int extendStun(long gameTime, int ticks) {
+        long requestedEnd = gameTime + Math.max(0, ticks);
+        stunEnd = Math.max(stunEnd, requestedEnd);
+        return (int) Math.min(Integer.MAX_VALUE, Math.max(0L, stunEnd - gameTime));
+    }
+
     public boolean isSkillActive() {
         return skillPhase != SliderSkillPhase.IDLE;
     }
 
-    boolean hasArenaMovementState() {
-        return movementPhase != SliderMovementPhase.IDLE
-                || patrolDirectionInitialized
-                || skillQueued
-                || isSkillActive()
-                || parryWindowOpen;
+    public boolean isPausingAtCorner() {
+        return movementPhase == SliderMovementPhase.PAUSING_AT_CORNER;
+    }
+
+    public boolean hasStandaloneArena() {
+        return standaloneArenaInitialized;
+    }
+
+    public Vec3 getStandaloneArenaCenter() {
+        return standaloneArenaCenter;
+    }
+
+    void initializeStandaloneArena(Vec3 center) {
+        if (!standaloneArenaInitialized) {
+            standaloneArenaCenter = center;
+            standaloneArenaInitialized = true;
+        }
+    }
+
+    boolean requiresLiveTarget() {
+        return skillPhase == SliderSkillPhase.CHARGING
+                || skillPhase == SliderSkillPhase.DASH_INTERVAL;
     }
 
     void resetSkillTransient() {
-        skillQueued = false;
         skillPhase = SliderSkillPhase.IDLE;
+        skillGlidePower = 0;
+        skillPhaseTwo = false;
         phaseTicks = 0;
         completedDashes = 0;
         totalDashes = 0;
@@ -76,6 +120,8 @@ public final class SliderCombatState {
         parryWindowOpen = false;
         dashDirection = Vec3.ZERO;
         dashStart = Vec3.ZERO;
+        dashPreviousPosition = Vec3.ZERO;
+        dashDistanceLimit = 0.0;
         dashHits.clear();
     }
 
@@ -108,6 +154,16 @@ public final class SliderCombatState {
     public void write(CompoundTag tag, long gameTime) {
         tag.putInt(BARRIER_LAYERS_KEY, Math.max(0, barrierLayers));
         tag.putBoolean(PHASE_TWO_KEY, phaseTwo);
+        tag.putBoolean(STANDALONE_ARENA_KEY, standaloneArenaInitialized);
+        if (standaloneArenaInitialized) {
+            tag.putDouble(STANDALONE_ARENA_X_KEY, standaloneArenaCenter.x);
+            tag.putDouble(STANDALONE_ARENA_Y_KEY, standaloneArenaCenter.y);
+            tag.putDouble(STANDALONE_ARENA_Z_KEY, standaloneArenaCenter.z);
+        } else {
+            tag.remove(STANDALONE_ARENA_X_KEY);
+            tag.remove(STANDALONE_ARENA_Y_KEY);
+            tag.remove(STANDALONE_ARENA_Z_KEY);
+        }
         long remaining = Math.max(0L, stunEnd - gameTime);
         if (remaining > 0L) {
             tag.putLong(STUN_REMAINING_KEY, remaining);
@@ -129,6 +185,13 @@ public final class SliderCombatState {
         } else {
             stunEnd = 0L;
         }
+        standaloneArenaInitialized = tag.getBoolean(STANDALONE_ARENA_KEY);
+        standaloneArenaCenter = standaloneArenaInitialized
+                ? new Vec3(
+                    tag.getDouble(STANDALONE_ARENA_X_KEY),
+                    tag.getDouble(STANDALONE_ARENA_Y_KEY),
+                    tag.getDouble(STANDALONE_ARENA_Z_KEY))
+                : Vec3.ZERO;
         configuredStateInitialized = true;
         resetTransient();
     }
@@ -139,7 +202,15 @@ public final class SliderCombatState {
         perimeterEdge = Direction.NORTH;
         patrolClockwise = false;
         patrolDirectionInitialized = false;
-        movementTicks = 0;
+        patrolEdgeStarted = false;
+        patrolCornerResumeGameTime = 0L;
+        monitoredMovementPhase = SliderMovementPhase.IDLE;
+        movementProgressPosition = Vec3.ZERO;
+        movementStallTicks = 0;
+        nextVerticalAlignmentGameTime = 0L;
+        patrolCollisionPositionInitialized = false;
+        patrolCollisionPreviousPosition = Vec3.ZERO;
+        patrolCollisionContacts.clear();
         resetSkillTransient();
         shieldBlockGameTime = Long.MIN_VALUE;
         shieldBlockPlayers.clear();

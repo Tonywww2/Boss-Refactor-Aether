@@ -2,38 +2,46 @@ package com.tonywww.bossrefactoraether.slider;
 
 import net.minecraft.core.Direction;
 import net.minecraft.util.Mth;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 public final class SliderMechanics {
     public static final int MAX_BARRIER_LAYERS = 5;
     public static final int MAX_GLIDE_POWER = 10;
     public static final int PHASE_TWO_MIN_GLIDE_POWER = 2;
-    public static final int CHAIN_GLIDE_POWER_COST = 10;
+    public static final int CHAIN_GLIDE_POWER_COST = 6;
+    public static final int PARRY_RECOVERY_TICKS = 60;
     public static final int STUN_TICKS = 100;
     public static final int SHIELD_COOLDOWN_TICKS = 60;
     public static final int CHARGE_TICKS = 30;
     public static final int DASH_TICK_LIMIT = 10;
     public static final int DASH_INTERVAL_TICKS = 4;
+    public static final int PERIMETER_CORNER_PAUSE_TICKS = 15;
+    public static final int ARENA_MOVEMENT_STALL_TICKS = 20;
+    public static final int VERTICAL_ALIGNMENT_RETRY_TICKS = 40;
     public static final int PHASE_ONE_DASHES = 2;
     public static final int PHASE_TWO_DASHES = 3;
     public static final double DASH_DISTANCE_LIMIT = 12.0;
-    public static final double BLOCK_BREAK_SAMPLE_STEP = 0.25;
-    public static final int MAX_BLOCK_BREAK_SAMPLES = 64;
-    public static final double DEFAULT_BASE_SPEED_MULTIPLIER = 0.8;
+    public static final double DEFAULT_BASE_SPEED_MULTIPLIER = 0.4;
     public static final double DEFAULT_PHASE_TWO_SPEED_MULTIPLIER = 1.2;
     public static final double DEFAULT_GLIDE_POWER_SPEED_PER_LAYER = 0.02;
     public static final double DEFAULT_VERTICAL_ALIGN_SPEED_MULTIPLIER = 0.65;
-    public static final double DEFAULT_EDGE_RETURN_SPEED_MULTIPLIER = 1.0;
-    public static final double DEFAULT_PERIMETER_PATROL_SPEED_MULTIPLIER = 1.0;
+    public static final double DEFAULT_EDGE_RETURN_SPEED_MULTIPLIER = 0.5;
+    public static final double DEFAULT_PERIMETER_PATROL_SPEED_MULTIPLIER = 0.5;
     public static final double DEFAULT_CHAIN_SPEED_MULTIPLIER = 1.6;
+    public static final double STANDALONE_ROOM_HORIZONTAL_RADIUS = 11.0;
+    public static final double STANDALONE_ROOM_VERTICAL_RADIUS = 7.0;
     public static final double ROOM_INTERIOR_INSET = 1.0;
+    public static final double ARENA_RADIUS_REDUCTION = 3.0;
     public static final double PERIMETER_EDGE_CLEARANCE = 0.35;
     public static final double PERIMETER_ARRIVAL_TOLERANCE = 0.12;
     public static final double VERTICAL_ALIGNMENT_TOLERANCE = 0.1;
+    public static final double MOVEMENT_PROGRESS_EPSILON = 1.0E-4;
+    public static final double PATROL_HIT_INFLATION = 0.1;
     public static final double DASH_HIT_INFLATION = 0.25;
     public static final double DEFAULT_ATTACK_DAMAGE = 6.0;
-    public static final double DEFAULT_NORMAL_BASE_DAMAGE = 2.0;
-    public static final double DEFAULT_NORMAL_ATTACK_DAMAGE_MULTIPLIER = 1.0;
+    public static final double DEFAULT_NORMAL_COLLISION_BASE_DAMAGE = 2.0;
+    public static final double DEFAULT_NORMAL_COLLISION_ATTACK_DAMAGE_MULTIPLIER = 1.0;
     public static final double DEFAULT_CHAIN_DASH_BASE_DAMAGE = 0.0;
     public static final double DEFAULT_CHAIN_DASH_ATTACK_DAMAGE_MULTIPLIER = 1.5;
     public static final double PHASE_TWO_MULTIPLIER = 1.2;
@@ -42,14 +50,6 @@ public final class SliderMechanics {
     public static final float FULL_ATTACK_STRENGTH = 1.0F;
 
     private SliderMechanics() {
-    }
-
-    public static boolean shouldOverrideOriginalMovement(
-            boolean awake, boolean hasDungeon,
-            boolean stunned, boolean skillActive) {
-        return stunned
-                || skillActive
-                || (awake && hasDungeon);
     }
 
     public static int clampBarrierLayers(int layers) {
@@ -85,6 +85,19 @@ public final class SliderMechanics {
             phaseTwo ? Math.max(0, phaseTwoMinimum) : 0,
             clampGlidePower(glidePower, maximumGlidePower) - Math.max(0, cost));
     }
+
+            public static int effectiveGlidePowerCost(
+                int maximumGlidePower, int configuredCost) {
+            return Math.min(
+                Math.max(1, maximumGlidePower),
+                Math.max(1, configuredCost));
+            }
+
+            public static boolean hasGlidePowerForSkill(
+                int glidePower, int maximumGlidePower, int configuredCost) {
+            return clampGlidePower(glidePower, maximumGlidePower)
+                >= effectiveGlidePowerCost(maximumGlidePower, configuredCost);
+            }
 
     public static boolean isFullyChargedAttack(float attackStrength) {
         return isFullyChargedAttack(attackStrength, FULL_ATTACK_STRENGTH);
@@ -184,38 +197,18 @@ public final class SliderMechanics {
                 Math.max(0.0, speed) * Math.max(1, tickLimit));
     }
 
-    public static int blockBreakSampleCount(double distance) {
-        return blockBreakSampleCount(distance, BLOCK_BREAK_SAMPLE_STEP,
-                MAX_BLOCK_BREAK_SAMPLES);
+    public static boolean shouldResetEmptyBossRoom(
+            boolean bossFight, boolean dungeonPlayersEmpty) {
+        return bossFight && dungeonPlayersEmpty;
     }
 
-    public static int blockBreakSampleCount(double distance, double sampleStep,
-                                            int maximumSamples) {
-        int samples = (int) Math.ceil(Math.max(0.0, distance)
-                / Math.max(0.001, sampleStep));
-        return Math.max(1, Math.min(Math.max(1, maximumSamples), samples));
+    public static boolean shouldTakeOverOriginalMovement(boolean hasArena) {
+        return hasArena;
     }
 
-    public static boolean isBlockBreakingAllowed(
-            boolean bossFight, boolean mobGriefingAllowed,
-            boolean ignoreMobGriefing) {
-        return mobGriefingAllowed || (bossFight && ignoreMobGriefing);
-    }
-
-    public static boolean shouldBreakBlocksAlongMovement(
-            boolean skillActive) {
-        return skillActive;
-    }
-
-    public static boolean canDestroyMovementBlock(
-            boolean forceBreakable, boolean hasBlockEntity,
-            boolean protectedByTag, float destroySpeed,
-            boolean canEntityDestroy) {
-        return !hasBlockEntity
-                && (forceBreakable
-                    || (!protectedByTag
-                        && destroySpeed >= 0.0F
-                        && canEntityDestroy));
+    public static boolean shouldDiscardExternalMovementOnAwaken(
+            boolean wasAwake, boolean awake, boolean hasArena) {
+        return !wasAwake && awake && hasArena;
     }
 
     public static double explicitMovementSpeed(
@@ -224,12 +217,46 @@ public final class SliderMechanics {
         return Math.max(0.0, originalMaxVelocity)
             * Math.max(0.0, movementMultiplier)
             * Math.max(0.0, actionMultiplier);
-        }
+    }
+
+            public static AABB standaloneRoomBounds(Vec3 center) {
+            return new AABB(
+                center.x - STANDALONE_ROOM_HORIZONTAL_RADIUS,
+                center.y - STANDALONE_ROOM_VERTICAL_RADIUS,
+                center.z - STANDALONE_ROOM_HORIZONTAL_RADIUS,
+                center.x + STANDALONE_ROOM_HORIZONTAL_RADIUS,
+                center.y + STANDALONE_ROOM_VERTICAL_RADIUS,
+                center.z + STANDALONE_ROOM_HORIZONTAL_RADIUS);
+            }
 
     public static Direction.Axis chooseAttackAxis(double deltaX, double deltaZ) {
         return Math.abs(deltaX) >= Math.abs(deltaZ)
                 ? Direction.Axis.X
                 : Direction.Axis.Z;
+    }
+
+    public static Direction.Axis chooseReachableAttackAxis(
+            double deltaX, double deltaZ,
+            double maximumDistance, double laneHalfWidth) {
+        return chooseReachableAttackAxis(
+            deltaX, deltaZ, maximumDistance, maximumDistance, laneHalfWidth);
+        }
+
+        public static Direction.Axis chooseReachableAttackAxis(
+            double deltaX, double deltaZ,
+            double maximumXDistance, double maximumZDistance,
+            double laneHalfWidth) {
+        double xDistance = Math.max(0.0, maximumXDistance);
+        double zDistance = Math.max(0.0, maximumZDistance);
+        double width = Math.max(0.0, laneHalfWidth);
+        boolean xAxisReachable = Math.abs(deltaX) <= xDistance
+                && Math.abs(deltaZ) <= width;
+        boolean zAxisReachable = Math.abs(deltaZ) <= zDistance
+                && Math.abs(deltaX) <= width;
+        if (xAxisReachable != zAxisReachable) {
+            return xAxisReachable ? Direction.Axis.X : Direction.Axis.Z;
+        }
+        return chooseAttackAxis(deltaX, deltaZ);
     }
 
     public static Vec3 axisMotion(Direction.Axis axis, double signedDistance) {
@@ -242,23 +269,31 @@ public final class SliderMechanics {
         return Mth.clamp(target - current, -Math.abs(maximumStep), Math.abs(maximumStep));
     }
 
-    public static boolean isCenterHeightAligned(
+    public static boolean hasVerticalAttackOverlap(
             double attackerMinY, double attackerMaxY,
             double targetMinY, double targetMaxY,
             double tolerance) {
-        double attackerCenterY = (attackerMinY + attackerMaxY) * 0.5;
-        double targetCenterY = (targetMinY + targetMaxY) * 0.5;
-        return Math.abs(targetCenterY - attackerCenterY)
-            <= Math.max(0.0, tolerance) + 1.0E-9;
+        double padding = Math.max(0.0, tolerance) + 1.0E-9;
+        return attackerMaxY + padding >= targetMinY
+                && targetMaxY + padding >= attackerMinY;
     }
 
-    public static double centerHeightAlignmentStep(
+    public static double verticalAttackAlignmentStep(
             double attackerMinY, double attackerMaxY,
             double targetMinY, double targetMaxY,
-            double maximumStep) {
-        double attackerCenterY = (attackerMinY + attackerMaxY) * 0.5;
-        double targetCenterY = (targetMinY + targetMaxY) * 0.5;
-        return stepToward(attackerCenterY, targetCenterY, maximumStep);
+            double tolerance, double maximumStep) {
+        double padding = Math.max(0.0, tolerance);
+        if (attackerMaxY + padding < targetMinY) {
+            return Math.min(
+                    Math.abs(maximumStep),
+                    targetMinY - attackerMaxY - padding);
+        }
+        if (targetMaxY + padding < attackerMinY) {
+            return -Math.min(
+                    Math.abs(maximumStep),
+                    attackerMinY - targetMaxY - padding);
+        }
+        return 0.0;
     }
 
     public static double insetMinimum(double minimum, double maximum, double inset) {
@@ -268,9 +303,12 @@ public final class SliderMechanics {
     }
 
     public static double perimeterInset(double entityWidth, double extraClearance) {
-        return ROOM_INTERIOR_INSET
+        double collisionSafeInset = ROOM_INTERIOR_INSET
                 + Math.max(0.0, entityWidth) * 0.5
                 + Math.max(0.0, extraClearance);
+        return Math.max(
+            Math.max(0.0, ARENA_RADIUS_REDUCTION),
+            collisionSafeInset);
     }
 
     public static double insetMaximum(double minimum, double maximum, double inset) {
@@ -348,16 +386,126 @@ public final class SliderMechanics {
                 : offset.scale(Math.max(0.0, maximumStep) / distance);
     }
 
+    public static long perimeterCornerPauseEnd(long gameTime, int pauseTicks) {
+        return gameTime + Math.max(0, pauseTicks);
+    }
+
+    public static boolean isPerimeterCornerPauseActive(
+            long gameTime, long resumeGameTime) {
+        return gameTime < resumeGameTime;
+    }
+
+            public static double boundedAxisDashDistance(
+                double start, double direction,
+                double minimum, double maximum,
+                double requestedDistance) {
+            double lower = Math.min(minimum, maximum);
+            double upper = Math.max(minimum, maximum);
+            double distanceToBoundary = direction >= 0.0
+                ? upper - start
+                : start - lower;
+            return Math.min(
+                Math.max(0.0, requestedDistance),
+                Math.max(0.0, distanceToBoundary));
+            }
+
+    public static boolean hasMovementProgress(Vec3 previous, Vec3 current) {
+        return previous.distanceToSqr(current)
+                >= MOVEMENT_PROGRESS_EPSILON * MOVEMENT_PROGRESS_EPSILON;
+    }
+
+    public static AABB actualMovementSweep(
+            AABB currentBounds, Vec3 previousPosition,
+            Vec3 currentPosition, double inflation) {
+        Vec3 actualMovement = currentPosition.subtract(previousPosition);
+        return currentBounds.expandTowards(actualMovement.scale(-1.0))
+                .inflate(Math.max(0.0, inflation));
+    }
+
     public static boolean canHitWithAxisDash(
             double sliderX, double sliderZ,
             double targetX, double targetZ,
             double maximumDistance, double laneHalfWidth) {
+        return canHitWithAxisDash(
+                sliderX, sliderZ, targetX, targetZ,
+                maximumDistance, maximumDistance, laneHalfWidth);
+    }
+
+    public static boolean canHitWithAxisDash(
+            double sliderX, double sliderZ,
+            double targetX, double targetZ,
+            double maximumXDistance, double maximumZDistance,
+            double laneHalfWidth) {
         double deltaX = Math.abs(targetX - sliderX);
         double deltaZ = Math.abs(targetZ - sliderZ);
+        double xDistance = Math.max(0.0, maximumXDistance);
+        double zDistance = Math.max(0.0, maximumZDistance);
+        double width = Math.max(0.0, laneHalfWidth);
+        Direction.Axis axis = chooseReachableAttackAxis(
+            deltaX, deltaZ, xDistance, zDistance, width);
+        return axis == Direction.Axis.X
+            ? deltaX <= xDistance && deltaZ <= width
+            : deltaZ <= zDistance && deltaX <= width;
+    }
+
+    public static double firstAxisDashIntersection(
+            double startX, double startZ,
+            double endX, double endZ,
+            double targetX, double targetZ,
+            double maximumDistance, double laneHalfWidth) {
         double distance = Math.max(0.0, maximumDistance);
         double width = Math.max(0.0, laneHalfWidth);
-        return (deltaX <= distance && deltaZ <= width)
-                || (deltaZ <= distance && deltaX <= width);
+        double xDashIntersection = firstSegmentRectangleIntersection(
+                startX, startZ, endX, endZ,
+                targetX - distance, targetX + distance,
+                targetZ - width, targetZ + width);
+        double zDashIntersection = firstSegmentRectangleIntersection(
+                startX, startZ, endX, endZ,
+                targetX - width, targetX + width,
+                targetZ - distance, targetZ + distance);
+        if (Double.isNaN(xDashIntersection)) {
+            return zDashIntersection;
+        }
+        if (Double.isNaN(zDashIntersection)) {
+            return xDashIntersection;
+        }
+        return Math.min(xDashIntersection, zDashIntersection);
+    }
+
+    private static double firstSegmentRectangleIntersection(
+            double startX, double startZ,
+            double endX, double endZ,
+            double minimumX, double maximumX,
+            double minimumZ, double maximumZ) {
+        double deltaX = endX - startX;
+        double deltaZ = endZ - startZ;
+        double entry = 0.0;
+        double exit = 1.0;
+
+        if (Math.abs(deltaX) < 1.0E-12) {
+            if (startX < minimumX || startX > maximumX) {
+                return Double.NaN;
+            }
+        } else {
+            double first = (minimumX - startX) / deltaX;
+            double second = (maximumX - startX) / deltaX;
+            entry = Math.max(entry, Math.min(first, second));
+            exit = Math.min(exit, Math.max(first, second));
+        }
+
+        if (Math.abs(deltaZ) < 1.0E-12) {
+            if (startZ < minimumZ || startZ > maximumZ) {
+                return Double.NaN;
+            }
+        } else {
+            double first = (minimumZ - startZ) / deltaZ;
+            double second = (maximumZ - startZ) / deltaZ;
+            entry = Math.max(entry, Math.min(first, second));
+            exit = Math.min(exit, Math.max(first, second));
+        }
+        return entry <= exit && exit >= 0.0 && entry <= 1.0
+                ? Mth.clamp(entry, 0.0, 1.0)
+                : Double.NaN;
     }
 
     private static double distanceToPerimeterEdgeSquared(
