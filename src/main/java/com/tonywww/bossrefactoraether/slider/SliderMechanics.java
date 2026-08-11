@@ -211,6 +211,14 @@ public final class SliderMechanics {
         return !wasAwake && awake && hasArena;
     }
 
+    public static boolean isDamageAllowedFromArena(
+            boolean protectionEnabled, boolean sameLevel,
+            AABB roomBounds, Vec3 sourcePosition) {
+        return !protectionEnabled
+                || roomBounds == null
+                || sameLevel && roomBounds.contains(sourcePosition);
+    }
+
     public static double explicitMovementSpeed(
             double originalMaxVelocity, double movementMultiplier,
             double actionMultiplier) {

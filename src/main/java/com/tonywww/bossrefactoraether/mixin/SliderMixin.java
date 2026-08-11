@@ -209,6 +209,32 @@ public abstract class SliderMixin extends PathfinderMob
         SliderCombatService.reset((Slider) (Object) this);
     }
 
+    @Inject(method = "hurt", at = @At("HEAD"), cancellable = true)
+    private void bossRefactorAether$blockOutsideArenaDamage(
+            DamageSource source, float amount,
+            CallbackInfoReturnable<Boolean> callback) {
+        if (!SliderCombatService.isDamageAllowedFromArena(
+                (Slider) (Object) this, source)) {
+            callback.setReturnValue(false);
+        }
+    }
+
+    @Inject(
+            method = {"getHurtAngle", "getHurtAngleX", "getHurtAngleZ"},
+            at = @At("HEAD"), cancellable = true, remap = false)
+    private void bossRefactorAether$keepUpright(
+            CallbackInfoReturnable<Float> callback) {
+        callback.setReturnValue(0.0F);
+    }
+
+    @Inject(
+            method = {"setHurtAngle", "setHurtAngleX", "setHurtAngleZ"},
+            at = @At("HEAD"), cancellable = true, remap = false)
+    private void bossRefactorAether$discardTilt(
+            float angle, CallbackInfo callback) {
+        callback.cancel();
+    }
+
     @Inject(method = "canDamageSlider", at = @At("HEAD"), cancellable = true, remap = false)
     private void bossRefactorAether$removeToolRestriction(
             DamageSource source, CallbackInfoReturnable<Optional<LivingEntity>> callback) {

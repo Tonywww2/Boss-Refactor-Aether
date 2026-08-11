@@ -81,6 +81,7 @@ public final class BossRefactorAetherConfig {
                 public final ForgeConfigSpec.DoubleValue extraDashChance;
                 public final ForgeConfigSpec.DoubleValue fullPickaxeAttackStrength;
                 public final ForgeConfigSpec.BooleanValue immuneToNegativeEffects;
+                public final ForgeConfigSpec.BooleanValue preventOutsideArenaDamage;
                 public final ForgeConfigSpec.IntValue glidePowerGainPerPatrolEdge;
                 public final ForgeConfigSpec.IntValue glidePowerGainOnBarrierBreak;
                 public final ForgeConfigSpec.BooleanValue phaseTwoFirstDashUnblockable;
@@ -141,6 +142,10 @@ public final class BossRefactorAetherConfig {
                                         "Make the Slider immune to all HARMFUL mob effects and remove existing harmful effects.",
                                         "使滑行魔石免疫全部 HARMFUL 负面效果，并清除已有负面效果。")
                                         .define("immune_to_negative_effects", true);
+                        preventOutsideArenaDamage = builder.comment(
+                                        "Prevent entities outside the Slider's room from damaging it. Indirect damage uses the causing entity, such as the projectile owner.",
+                                        "阻止魔石房间外的实体对其造成伤害。间接伤害按实际来源实体判定，例如投射物主人。")
+                                        .define("prevent_outside_arena_damage", true);
                         glidePowerGainPerPatrolEdge = defineInt(
                                         builder, "glide_power_gain_per_patrol_edge", 2, 0, 100,
                                         "Glide Power gained after completing one arena edge.",

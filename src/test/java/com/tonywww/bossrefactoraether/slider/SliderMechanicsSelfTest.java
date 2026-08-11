@@ -32,6 +32,7 @@ public final class SliderMechanicsSelfTest {
         verifyDashDistanceClamping();
         verifyDungeonLifecycle();
         verifyStandaloneArena();
+        verifyArenaDamageProtection();
         verifyDashGeometry();
         verifyPerimeterMovementGeometry();
         verifyVerticalAlignment();
@@ -219,6 +220,31 @@ public final class SliderMechanicsSelfTest {
                 "a summoned Slider arena must survive save and reload");
         check(loaded.getStandaloneArenaCenter().equals(center),
                 "a reloaded summoned Slider must retain its original room center");
+    }
+
+    private static void verifyArenaDamageProtection() {
+        AABB room = new AABB(0.0, 0.0, 0.0, 20.0, 14.0, 20.0);
+        check(Boolean.TRUE.equals(BossRefactorAetherConfig.SLIDER_COMBAT
+                        .preventOutsideArenaDamage.getDefault()),
+                "outside-arena damage protection must default to enabled");
+        check(SliderMechanics.isDamageAllowedFromArena(
+                        true, true, room, new Vec3(10.0, 7.0, 10.0)),
+                "an entity inside the room must be able to damage Slider");
+        check(!SliderMechanics.isDamageAllowedFromArena(
+                        true, true, room, new Vec3(20.0, 7.0, 10.0)),
+                "an entity on the exclusive maximum boundary must count as outside");
+        check(!SliderMechanics.isDamageAllowedFromArena(
+                        true, true, room, new Vec3(-0.01, 7.0, 10.0)),
+                "an entity outside the room must not damage Slider");
+        check(!SliderMechanics.isDamageAllowedFromArena(
+                        true, false, room, new Vec3(10.0, 7.0, 10.0)),
+                "an entity in another dimension must not damage Slider");
+        check(SliderMechanics.isDamageAllowedFromArena(
+                        false, false, room, new Vec3(-100.0, 7.0, 10.0)),
+                "disabling protection must allow damage from outside the room");
+        check(SliderMechanics.isDamageAllowedFromArena(
+                        true, true, null, new Vec3(-100.0, 7.0, 10.0)),
+                "missing room geometry must fail open instead of making Slider invulnerable");
     }
 
     private static void verifyDashGeometry() {
@@ -624,6 +650,16 @@ public final class SliderMechanicsSelfTest {
                                 .noneMatch(name -> name.equals("bossRefactorAether$scaleAcceleration")
                                         || name.equals("bossRefactorAether$scaleMaxVelocity")),
                                 "SliderMixin must not rewrite Aether's base movement-speed methods");
+                check(Arrays.stream(SliderMixin.class.getDeclaredMethods())
+                                .map(Method::getName)
+                                .anyMatch(name -> name.equals(
+                                        "bossRefactorAether$keepUpright")),
+                                "SliderMixin must force all rendered tilt angles to zero");
+                check(Arrays.stream(SliderMixin.class.getDeclaredMethods())
+                                .map(Method::getName)
+                                .anyMatch(name -> name.equals(
+                                        "bossRefactorAether$discardTilt")),
+                                "SliderMixin must discard Aether tilt-angle updates");
         }
 
                     private static void verifyTelegraphProgress() {

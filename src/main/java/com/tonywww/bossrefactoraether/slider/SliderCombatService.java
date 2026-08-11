@@ -87,6 +87,28 @@ public final class SliderCombatService {
         return slider.getDungeon() != null || state(slider).hasStandaloneArena();
     }
 
+    public static boolean isDamageAllowedFromArena(
+            Slider slider, DamageSource source) {
+        if (!BossRefactorAetherConfig.SLIDER_COMBAT
+                .preventOutsideArenaDamage.get()) {
+            return true;
+        }
+        Entity sourceEntity = source.getEntity();
+        if (sourceEntity == null) {
+            sourceEntity = source.getDirectEntity();
+        }
+        if (sourceEntity == null) {
+            return true;
+        }
+        ensureArena(slider);
+        AABB roomBounds = arenaRoomBounds(slider);
+        return SliderMechanics.isDamageAllowedFromArena(
+                true,
+                sourceEntity.level() == slider.level(),
+                roomBounds,
+                sourceEntity.position());
+    }
+
     public static void trackDungeonWithoutRoomReset(Slider slider) {
         if (slider.getDungeon() == null) {
             return;
