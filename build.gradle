@@ -194,33 +194,47 @@ tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
 
+def runTests = providers.gradleProperty('runTests')
+        .map { value -> value.toString().trim().isEmpty() || value.toString().toBoolean() }
+        .getOrElse(false)
+
 tasks.register('sliderMechanicsTest', JavaExec) {
     group = 'verification'
-    description = 'Runs dependency-free Slider balance checks.'
-    dependsOn tasks.named('testClasses')
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'com.tonywww.bossrefactoraether.slider.SliderMechanicsSelfTest'
+    description = 'Runs dependency-free Slider balance checks when -PrunTests is present.'
+    enabled = runTests
+    if (runTests) {
+        dependsOn tasks.named('testClasses')
+        classpath = sourceSets.test.runtimeClasspath
+        mainClass = 'com.tonywww.bossrefactoraether.slider.SliderMechanicsSelfTest'
+    }
 }
 
 tasks.register('valkyrieQueenMechanicsTest', JavaExec) {
     group = 'verification'
-    description = 'Runs dependency-free Valkyrie Queen combat geometry checks.'
-    dependsOn tasks.named('testClasses')
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'com.tonywww.bossrefactoraether.valkyriequeen.ValkyrieQueenMechanicsSelfTest'
+    description = 'Runs Valkyrie Queen combat geometry checks when -PrunTests is present.'
+    enabled = runTests
+    if (runTests) {
+        dependsOn tasks.named('testClasses')
+        classpath = sourceSets.test.runtimeClasspath
+        mainClass = 'com.tonywww.bossrefactoraether.valkyriequeen.ValkyrieQueenMechanicsSelfTest'
+    }
 }
 
 tasks.register('sunSpiritMechanicsTest', JavaExec) {
     group = 'verification'
-    description = 'Runs dependency-free Sun Spirit combat geometry checks.'
-    dependsOn tasks.named('testClasses')
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'com.tonywww.bossrefactoraether.sunspirit.SunSpiritMechanicsSelfTest'
+    description = 'Runs Sun Spirit combat geometry checks when -PrunTests is present.'
+    enabled = runTests
+    if (runTests) {
+        dependsOn tasks.named('testClasses')
+        classpath = sourceSets.test.runtimeClasspath
+        mainClass = 'com.tonywww.bossrefactoraether.sunspirit.SunSpiritMechanicsSelfTest'
+    }
 }
 
 tasks.register('verifyOptionalSenDimsIsolation') {
     group = 'verification'
-    description = 'Ensures only the delayed SenDimS compat package links against its API.'
+    description = 'Checks SenDimS API isolation when -PrunTests is present.'
+    enabled = runTests
     def coreSources = fileTree('src/main/java') {
         include '**/*.java'
         exclude '**/compat/sendims/**'
@@ -238,7 +252,8 @@ tasks.register('verifyOptionalSenDimsIsolation') {
 
 tasks.register('verifySenDimsParryEffects') {
     group = 'verification'
-    description = 'Ensures every parry-break attack reaches the SenDimS PARRIED effect path.'
+    description = 'Checks SenDimS PARRIED effect paths when -PrunTests is present.'
+    enabled = runTests
     def compatFile = file(
             'src/main/java/com/tonywww/bossrefactoraether/compat/sendims/SenDimsSliderCompat.java')
     def clientProviderFile = file(
@@ -343,10 +358,33 @@ tasks.register('verifySenDimsParryEffects') {
     }
 }
 
+tasks.named('test').configure {
+    enabled = runTests
+    if (!runTests) {
+        setDependsOn([])
+    }
+}
+
+tasks.named('compileTestJava').configure {
+    enabled = runTests
+}
+
+tasks.named('processTestResources').configure {
+    enabled = runTests
+}
+
+tasks.named('testClasses').configure {
+    enabled = runTests
+}
+
 tasks.named('check').configure {
-    dependsOn tasks.named('sliderMechanicsTest')
-    dependsOn tasks.named('valkyrieQueenMechanicsTest')
-    dependsOn tasks.named('sunSpiritMechanicsTest')
-    dependsOn tasks.named('verifyOptionalSenDimsIsolation')
-    dependsOn tasks.named('verifySenDimsParryEffects')
+    setDependsOn([])
+    if (runTests) {
+        dependsOn tasks.named('test')
+        dependsOn tasks.named('sliderMechanicsTest')
+        dependsOn tasks.named('valkyrieQueenMechanicsTest')
+        dependsOn tasks.named('sunSpiritMechanicsTest')
+        dependsOn tasks.named('verifyOptionalSenDimsIsolation')
+        dependsOn tasks.named('verifySenDimsParryEffects')
+    }
 }

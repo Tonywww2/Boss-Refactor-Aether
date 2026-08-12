@@ -1,5 +1,6 @@
 package com.tonywww.bossrefactoraether.valkyriequeen;
 
+import com.tonywww.bossrefactoraether.BossRecovery;
 import com.aetherteam.aether.entity.AetherEntityTypes;
 import com.aetherteam.aether.entity.monster.dungeon.boss.ValkyrieQueen;
 import com.aetherteam.aether.entity.projectile.crystal.ThunderCrystal;
@@ -73,6 +74,8 @@ public final class ValkyrieQueenCombatService {
             enterPhaseTwo(queen, state);
         }
         if (!queen.isReady() || !queen.isBossFight() || queen.isDeadOrDying()) {
+            state.outOfCombatHealingTicks = BossRecovery.tick(
+                    queen, true, state.outOfCombatHealingTicks);
             cancelActiveAttack(queen, state);
             return;
         }
@@ -88,6 +91,8 @@ public final class ValkyrieQueenCombatService {
         }
 
         LivingEntity target = validTarget(queen);
+        state.outOfCombatHealingTicks = BossRecovery.tick(
+            queen, target == null, state.outOfCombatHealingTicks);
         if (target == null) {
             queen.setAggressive(false);
             cancelActiveAttack(queen, state);
@@ -130,6 +135,7 @@ public final class ValkyrieQueenCombatService {
         state.spearReadyAt = 0L;
         state.basicIndex = 0;
         state.skillIndex = 0;
+        state.outOfCombatHealingTicks = 0;
         state.resetTransient();
     }
 

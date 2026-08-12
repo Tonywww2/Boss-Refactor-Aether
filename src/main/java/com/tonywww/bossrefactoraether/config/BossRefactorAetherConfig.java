@@ -1,5 +1,6 @@
 package com.tonywww.bossrefactoraether.config;
 
+import com.tonywww.bossrefactoraether.BossRecovery;
 import com.tonywww.bossrefactoraether.slider.SliderMechanics;
 import com.tonywww.bossrefactoraether.sunspirit.SunSpiritMechanics;
 import com.tonywww.bossrefactoraether.valkyriequeen.ValkyrieQueenMechanics;
@@ -13,6 +14,7 @@ public final class BossRefactorAetherConfig {
         private static final int MAX_TICKS = 72_000;
 
         public static final ForgeConfigSpec COMMON_SPEC;
+        public static final BossRecoveryConfig BOSS_RECOVERY;
         public static final SliderCombatConfig SLIDER_COMBAT;
         public static final SliderDamageConfig SLIDER_DAMAGE;
         public static final SliderMovementConfig SLIDER_MOVEMENT;
@@ -31,6 +33,8 @@ public final class BossRefactorAetherConfig {
 
         static {
                 ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
+                BOSS_RECOVERY = new BossRecoveryConfig(builder);
+
                 builder.comment("Aether Slider settings.", "滑行魔石设置。")
                                 .push("slider");
                 SLIDER_COMBAT = new SliderCombatConfig(builder);
@@ -62,6 +66,43 @@ public final class BossRefactorAetherConfig {
         }
 
         private BossRefactorAetherConfig() {
+        }
+
+        public static final class BossRecoveryConfig {
+                public final ForgeConfigSpec.BooleanValue enabled;
+                public final ForgeConfigSpec.IntValue intervalTicks;
+                public final ForgeConfigSpec.DoubleValue flatHealing;
+                public final ForgeConfigSpec.DoubleValue maxHealthRatio;
+
+                private BossRecoveryConfig(ForgeConfigSpec.Builder builder) {
+                        builder.comment(
+                                        "Shared out-of-combat healing for all three bosses.",
+                                        "三种 Boss 共用的脱战回血设置。")
+                                        .push("boss_recovery");
+                        enabled = builder.comment(
+                                        "Enable out-of-combat boss healing.",
+                                        "是否启用 Boss 脱战回血。")
+                                        .define("enabled", true);
+                        intervalTicks = defineInt(
+                                        builder, "interval_ticks",
+                                        BossRecovery.DEFAULT_INTERVAL_TICKS,
+                                        1, MAX_TICKS,
+                                        "Ticks without a valid target between heals.",
+                                        "每次回血前需要持续无有效目标的 tick 数。");
+                        flatHealing = defineDouble(
+                                        builder, "flat_healing",
+                                        BossRecovery.DEFAULT_FLAT_HEALING,
+                                        0.0, 1_000_000.0,
+                                        "Flat health restored each interval.",
+                                        "每次回复的固定生命值。");
+                        maxHealthRatio = defineDouble(
+                                        builder, "max_health_ratio",
+                                        BossRecovery.DEFAULT_MAX_HEALTH_RATIO,
+                                        0.0, 1.0,
+                                        "Maximum-health ratio restored each interval.",
+                                        "每次按最大生命值比例回复的生命值。");
+                        builder.pop();
+                }
         }
 
         public static final class SliderCombatConfig {
@@ -208,6 +249,7 @@ public final class BossRefactorAetherConfig {
                 public final ForgeConfigSpec.DoubleValue verticalAlignmentSpeedMultiplier;
                 public final ForgeConfigSpec.DoubleValue edgeReturnSpeedMultiplier;
                 public final ForgeConfigSpec.DoubleValue perimeterPatrolSpeedMultiplier;
+                public final ForgeConfigSpec.DoubleValue chaseSpeedMultiplier;
                 public final ForgeConfigSpec.DoubleValue chainDashSpeedMultiplier;
 
                 private SliderMovementConfig(ForgeConfigSpec.Builder builder) {
@@ -256,6 +298,12 @@ public final class BossRefactorAetherConfig {
                                         SliderMechanics.DEFAULT_PERIMETER_PATROL_SPEED_MULTIPLIER,
                                         "Multiplier while patrolling the square arena perimeter.",
                                         "沿方形场地边缘巡航时的速度倍率。");
+                        chaseSpeedMultiplier = defineSpeedMultiplier(
+                                        builder,
+                                        "chase_speed_multiplier",
+                                        SliderMechanics.DEFAULT_CHASE_SPEED_MULTIPLIER,
+                                        "Multiplier while continuously chasing the current player.",
+                                        "持续追击当前玩家时的速度倍率。");
                         chainDashSpeedMultiplier = defineSpeedMultiplier(
                                         builder,
                                         "chain_dash_speed_multiplier",
@@ -270,6 +318,7 @@ public final class BossRefactorAetherConfig {
                 public final ForgeConfigSpec.IntValue chargeTicks;
                 public final ForgeConfigSpec.IntValue dashTickLimit;
                 public final ForgeConfigSpec.IntValue dashIntervalTicks;
+                public final ForgeConfigSpec.IntValue predictionTicks;
                 public final ForgeConfigSpec.IntValue perimeterCornerPauseTicks;
 
                 private SliderTimingConfig(ForgeConfigSpec.Builder builder) {
@@ -284,6 +333,12 @@ public final class BossRefactorAetherConfig {
                         dashIntervalTicks = defineInt(builder, "continuous_glide_interval_ticks",
                                         SliderMechanics.DASH_INTERVAL_TICKS, 0, MAX_TICKS,
                                         "Pause between dashes.", "连续冲刺之间的停顿时间。");
+                        predictionTicks = defineInt(
+                                        builder, "continuous_glide_prediction_ticks",
+                                        SliderMechanics.CONTINUOUS_GLIDE_PREDICTION_TICKS,
+                                        0, MAX_TICKS,
+                                        "Ticks of player velocity used to lead Continuous Glide aim.",
+                                        "连续滑行瞄准时用于预判玩家速度的 tick 数。");
                         perimeterCornerPauseTicks = defineInt(
                                         builder, "perimeter_corner_pause_ticks",
                                         SliderMechanics.PERIMETER_CORNER_PAUSE_TICKS, 0, MAX_TICKS,
@@ -295,6 +350,7 @@ public final class BossRefactorAetherConfig {
 
         public static final class SliderRangeConfig {
                 public final ForgeConfigSpec.DoubleValue continuousGlideDistance;
+                public final ForgeConfigSpec.DoubleValue continuousGlideMaxLeadDistance;
                 public final ForgeConfigSpec.DoubleValue perimeterEdgeClearance;
                 public final ForgeConfigSpec.DoubleValue perimeterArrivalTolerance;
                 public final ForgeConfigSpec.DoubleValue verticalAlignmentTolerance;
@@ -305,6 +361,11 @@ public final class BossRefactorAetherConfig {
                         continuousGlideDistance = defineDistance(builder, "continuous_glide_distance",
                                         SliderMechanics.DASH_DISTANCE_LIMIT, "Maximum dash distance.",
                                         "连续滑行单次冲刺最大距离。");
+                        continuousGlideMaxLeadDistance = defineDistance(
+                                        builder, "continuous_glide_max_lead_distance",
+                                        SliderMechanics.CONTINUOUS_GLIDE_MAX_LEAD_DISTANCE,
+                                        "Maximum horizontal player-velocity lead distance.",
+                                        "按玩家水平速度预判时允许的最大领先距离。");
                         perimeterEdgeClearance = defineDistance(builder, "perimeter_edge_clearance",
                                         SliderMechanics.PERIMETER_EDGE_CLEARANCE,
                                         "Extra clearance between the Slider and arena walls.",

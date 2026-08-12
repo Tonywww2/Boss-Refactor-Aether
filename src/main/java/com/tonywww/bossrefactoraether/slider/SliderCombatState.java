@@ -11,6 +11,7 @@ import java.util.UUID;
 public final class SliderCombatState {
     private static final String BARRIER_LAYERS_KEY = "bossrefactoraether.slider.barrier_layers";
     private static final String PHASE_TWO_KEY = "bossrefactoraether.slider.phase_two";
+    private static final String CHASE_MODE_KEY = "bossrefactoraether.slider.chase_mode";
     private static final String STUN_REMAINING_KEY = "bossrefactoraether.slider.stun_remaining";
     private static final String LEGACY_STUN_END_KEY = "bossrefactoraether.slider.stun_end";
         private static final String STANDALONE_ARENA_KEY =
@@ -25,7 +26,9 @@ public final class SliderCombatState {
     int barrierLayers = SliderMechanics.MAX_BARRIER_LAYERS;
     boolean configuredStateInitialized;
     boolean phaseTwo;
+    SliderBehaviorMode behaviorMode = SliderBehaviorMode.PATROL;
     long stunEnd;
+    int outOfCombatHealingTicks;
     boolean standaloneArenaInitialized;
     Vec3 standaloneArenaCenter = Vec3.ZERO;
 
@@ -40,6 +43,12 @@ public final class SliderCombatState {
     Vec3 movementProgressPosition = Vec3.ZERO;
     int movementStallTicks;
     long nextVerticalAlignmentGameTime;
+    boolean chaseProgressInitialized;
+    Vec3 chaseProgressPosition = Vec3.ZERO;
+    double chaseProgressDistance;
+    Direction chaseDirection;
+    double chaseVelocity;
+    int chasePauseTicks;
     SliderSkillPhase skillPhase = SliderSkillPhase.IDLE;
     int skillGlidePower;
     boolean skillPhaseTwo;
@@ -68,6 +77,10 @@ public final class SliderCombatState {
 
     public boolean isPhaseTwo() {
         return phaseTwo;
+    }
+
+    public SliderBehaviorMode getBehaviorMode() {
+        return behaviorMode;
     }
 
     public boolean isStunned(long gameTime) {
@@ -123,6 +136,8 @@ public final class SliderCombatState {
         dashPreviousPosition = Vec3.ZERO;
         dashDistanceLimit = 0.0;
         dashHits.clear();
+        patrolCollisionPositionInitialized = false;
+        patrolCollisionContacts.clear();
     }
 
     public boolean isCurrentAttackParryable() {
@@ -154,6 +169,7 @@ public final class SliderCombatState {
     public void write(CompoundTag tag, long gameTime) {
         tag.putInt(BARRIER_LAYERS_KEY, Math.max(0, barrierLayers));
         tag.putBoolean(PHASE_TWO_KEY, phaseTwo);
+        tag.putBoolean(CHASE_MODE_KEY, behaviorMode == SliderBehaviorMode.CHASE);
         tag.putBoolean(STANDALONE_ARENA_KEY, standaloneArenaInitialized);
         if (standaloneArenaInitialized) {
             tag.putDouble(STANDALONE_ARENA_X_KEY, standaloneArenaCenter.x);
@@ -178,6 +194,9 @@ public final class SliderCombatState {
             ? Math.max(0, tag.getInt(BARRIER_LAYERS_KEY))
             : SliderMechanics.MAX_BARRIER_LAYERS;
         phaseTwo = tag.getBoolean(PHASE_TWO_KEY);
+        behaviorMode = tag.getBoolean(CHASE_MODE_KEY)
+            ? SliderBehaviorMode.CHASE
+            : SliderBehaviorMode.PATROL;
         if (tag.contains(STUN_REMAINING_KEY)) {
             stunEnd = gameTime + Math.max(0L, tag.getLong(STUN_REMAINING_KEY));
         } else if (tag.contains(LEGACY_STUN_END_KEY)) {
@@ -193,6 +212,7 @@ public final class SliderCombatState {
                     tag.getDouble(STANDALONE_ARENA_Z_KEY))
                 : Vec3.ZERO;
         configuredStateInitialized = true;
+        outOfCombatHealingTicks = 0;
         resetTransient();
     }
 
@@ -208,6 +228,12 @@ public final class SliderCombatState {
         movementProgressPosition = Vec3.ZERO;
         movementStallTicks = 0;
         nextVerticalAlignmentGameTime = 0L;
+        chaseProgressInitialized = false;
+        chaseProgressPosition = Vec3.ZERO;
+        chaseProgressDistance = 0.0;
+        chaseDirection = null;
+        chaseVelocity = 0.0;
+        chasePauseTicks = 0;
         patrolCollisionPositionInitialized = false;
         patrolCollisionPreviousPosition = Vec3.ZERO;
         patrolCollisionContacts.clear();

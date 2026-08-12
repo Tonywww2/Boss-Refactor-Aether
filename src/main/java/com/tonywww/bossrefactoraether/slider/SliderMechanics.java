@@ -16,6 +16,7 @@ public final class SliderMechanics {
     public static final int CHARGE_TICKS = 30;
     public static final int DASH_TICK_LIMIT = 10;
     public static final int DASH_INTERVAL_TICKS = 4;
+    public static final int CONTINUOUS_GLIDE_PREDICTION_TICKS = 8;
     public static final int PERIMETER_CORNER_PAUSE_TICKS = 15;
     public static final int ARENA_MOVEMENT_STALL_TICKS = 20;
     public static final int VERTICAL_ALIGNMENT_RETRY_TICKS = 40;
@@ -26,8 +27,9 @@ public final class SliderMechanics {
     public static final double DEFAULT_PHASE_TWO_SPEED_MULTIPLIER = 1.2;
     public static final double DEFAULT_GLIDE_POWER_SPEED_PER_LAYER = 0.02;
     public static final double DEFAULT_VERTICAL_ALIGN_SPEED_MULTIPLIER = 0.65;
-    public static final double DEFAULT_EDGE_RETURN_SPEED_MULTIPLIER = 0.5;
+    public static final double DEFAULT_EDGE_RETURN_SPEED_MULTIPLIER = 0.75;
     public static final double DEFAULT_PERIMETER_PATROL_SPEED_MULTIPLIER = 0.5;
+    public static final double DEFAULT_CHASE_SPEED_MULTIPLIER = 1.0;
     public static final double DEFAULT_CHAIN_SPEED_MULTIPLIER = 1.6;
     public static final double STANDALONE_ROOM_HORIZONTAL_RADIUS = 11.0;
     public static final double STANDALONE_ROOM_VERTICAL_RADIUS = 7.0;
@@ -39,6 +41,7 @@ public final class SliderMechanics {
     public static final double MOVEMENT_PROGRESS_EPSILON = 1.0E-4;
     public static final double PATROL_HIT_INFLATION = 0.1;
     public static final double DASH_HIT_INFLATION = 0.25;
+    public static final double CONTINUOUS_GLIDE_MAX_LEAD_DISTANCE = 4.0;
     public static final double DEFAULT_ATTACK_DAMAGE = 6.0;
     public static final double DEFAULT_NORMAL_COLLISION_BASE_DAMAGE = 2.0;
     public static final double DEFAULT_NORMAL_COLLISION_ATTACK_DAMAGE_MULTIPLIER = 1.0;
@@ -197,6 +200,21 @@ public final class SliderMechanics {
                 Math.max(0.0, speed) * Math.max(1, tickLimit));
     }
 
+    public static boolean isDashExecutionStateValid(
+            Vec3 direction, double distanceLimit) {
+        return direction.lengthSqr()
+                    > MOVEMENT_PROGRESS_EPSILON * MOVEMENT_PROGRESS_EPSILON
+                && distanceLimit > MOVEMENT_PROGRESS_EPSILON;
+    }
+
+    public static boolean isDashIntervalStateValid(
+            int completedDashes, int totalDashes,
+            boolean hasLockedTelegraph) {
+        return completedDashes >= 0
+                && completedDashes < totalDashes
+                && hasLockedTelegraph;
+    }
+
     public static boolean shouldResetEmptyBossRoom(
             boolean bossFight, boolean dungeonPlayersEmpty) {
         return bossFight && dungeonPlayersEmpty;
@@ -265,6 +283,31 @@ public final class SliderMechanics {
             return xAxisReachable ? Direction.Axis.X : Direction.Axis.Z;
         }
         return chooseAttackAxis(deltaX, deltaZ);
+    }
+
+    public static boolean isAxisDashReachable(
+            Direction.Axis axis, double deltaX, double deltaZ,
+            double maximumXDistance, double maximumZDistance,
+            double laneHalfWidth) {
+        double width = Math.max(0.0, laneHalfWidth);
+        return axis == Direction.Axis.X
+                ? Math.abs(deltaX) <= Math.max(0.0, maximumXDistance)
+                    && Math.abs(deltaZ) <= width
+                : Math.abs(deltaZ) <= Math.max(0.0, maximumZDistance)
+                    && Math.abs(deltaX) <= width;
+    }
+
+    public static Vec3 predictHorizontalTarget(
+            Vec3 position, Vec3 movement,
+            int predictionTicks, double maximumLeadDistance) {
+        Vec3 lead = new Vec3(movement.x, 0.0, movement.z)
+                .scale(Math.max(0, predictionTicks));
+        double maximumLead = Math.max(0.0, maximumLeadDistance);
+        if (lead.lengthSqr() > maximumLead * maximumLead
+                && lead.lengthSqr() > 1.0E-12) {
+            lead = lead.normalize().scale(maximumLead);
+        }
+        return position.add(lead);
     }
 
     public static Vec3 axisMotion(Direction.Axis axis, double signedDistance) {
@@ -392,6 +435,54 @@ public final class SliderMechanics {
         return distance < 1.0E-8
                 ? Vec3.ZERO
                 : offset.scale(Math.max(0.0, maximumStep) / distance);
+    }
+
+    public static Direction chooseChaseDirection(Vec3 current, Vec3 target) {
+        double deltaX = target.x - current.x;
+        double deltaY = target.y - current.y;
+        double deltaZ = target.z - current.z;
+        double absoluteX = Math.abs(deltaX);
+        double absoluteY = Math.abs(deltaY);
+        double absoluteZ = Math.abs(deltaZ);
+        if (absoluteY > absoluteX && absoluteY > absoluteZ) {
+            return deltaY > 0.0 ? Direction.UP : Direction.DOWN;
+        }
+        if (absoluteX > absoluteZ) {
+            return deltaX > 0.0 ? Direction.EAST : Direction.WEST;
+        }
+        return deltaZ > 0.0 ? Direction.SOUTH : Direction.NORTH;
+    }
+
+    public static double chaseAxisDistance(
+            Vec3 current, Vec3 target, Direction direction) {
+        Vec3 offset = target.subtract(current);
+        return offset.x * direction.getStepX()
+                + offset.y * direction.getStepY()
+                + offset.z * direction.getStepZ();
+    }
+
+    public static double nextChaseVelocity(
+            double currentVelocity, double maximumVelocity,
+            double velocityIncrease) {
+        return Math.min(
+                Math.max(0.0, maximumVelocity),
+                Math.max(0.0, currentVelocity)
+                    + Math.max(0.0, velocityIncrease));
+    }
+
+    public static Vec3 directionMotion(Direction direction, double distance) {
+        double step = Math.max(0.0, distance);
+        return new Vec3(
+                direction.getStepX() * step,
+                direction.getStepY() * step,
+                direction.getStepZ() * step);
+    }
+
+    public static Vec3 clampToBounds(Vec3 position, AABB bounds) {
+        return new Vec3(
+                Mth.clamp(position.x, bounds.minX, bounds.maxX),
+                Mth.clamp(position.y, bounds.minY, bounds.maxY),
+                Mth.clamp(position.z, bounds.minZ, bounds.maxZ));
     }
 
     public static long perimeterCornerPauseEnd(long gameTime, int pauseTicks) {

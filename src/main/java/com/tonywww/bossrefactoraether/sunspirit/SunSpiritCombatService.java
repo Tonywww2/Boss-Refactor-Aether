@@ -1,5 +1,6 @@
 package com.tonywww.bossrefactoraether.sunspirit;
 
+import com.tonywww.bossrefactoraether.BossRecovery;
 import com.aetherteam.aether.entity.AetherEntityTypes;
 import com.aetherteam.aether.entity.monster.dungeon.FireMinion;
 import com.aetherteam.aether.entity.monster.dungeon.boss.SunSpirit;
@@ -70,6 +71,8 @@ public final class SunSpiritCombatService {
         sunSpirit.setFrozenDuration(0);
 
         if (sunSpirit.isDeadOrDying() || !sunSpirit.isBossFight()) {
+            state.outOfCombatHealingTicks = BossRecovery.tick(
+                    sunSpirit, true, state.outOfCombatHealingTicks);
             if (sunSpirit.isDeadOrDying()) {
                 cleanupOwnedEntities(sunSpirit);
             }
@@ -87,6 +90,8 @@ public final class SunSpiritCombatService {
         emitPhaseTwoAura(sunSpirit, state);
 
         LivingEntity target = validTarget(sunSpirit);
+        state.outOfCombatHealingTicks = BossRecovery.tick(
+            sunSpirit, target == null, state.outOfCombatHealingTicks);
         if (target == null) {
             cancelAttack(sunSpirit, state);
             return;
@@ -115,6 +120,7 @@ public final class SunSpiritCombatService {
         state.attackIndex = 0;
         state.summonReadyAt = 0L;
         state.phaseSigilReadyAt = 0L;
+        state.outOfCombatHealingTicks = 0;
         state.resetTransient();
         holdPosition(sunSpirit, state);
     }

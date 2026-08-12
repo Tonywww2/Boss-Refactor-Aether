@@ -1,5 +1,6 @@
 package com.tonywww.bossrefactoraether.slider;
 
+import com.tonywww.bossrefactoraether.BossRecovery;
 import com.tonywww.bossrefactoraether.mixin.SliderMixin;
 import com.tonywww.bossrefactoraether.mixin.ValkyrieQueenMixin;
 import com.tonywww.bossrefactoraether.config.BossRefactorAetherConfig;
@@ -25,11 +26,13 @@ public final class SliderMechanicsSelfTest {
 
     public static void main(String[] args) {
         verifyClamping();
+        verifyBossRecoveryDefaults();
         verifyBarrierReduction();
         verifyMultiplicativeScaling();
         verifyChainConstants();
         verifyGlidePowerRules();
         verifyDashDistanceClamping();
+        verifyBehaviorModes();
         verifyDungeonLifecycle();
         verifyStandaloneArena();
         verifyArenaDamageProtection();
@@ -53,6 +56,23 @@ public final class SliderMechanicsSelfTest {
         check(SliderMechanics.clampBarrierLayers(7) == 5, "barrier layers must clamp to five");
         check(SliderMechanics.clampGlidePower(-1) == 0, "glide power must clamp to zero");
         check(SliderMechanics.clampGlidePower(11) == 10, "glide power must clamp to ten");
+    }
+
+    private static void verifyBossRecoveryDefaults() {
+        check(BossRecovery.DEFAULT_INTERVAL_TICKS == 20,
+                "out-of-combat healing must tick once per second by default");
+        checkClose(BossRecovery.healingAmount(
+                        400.0F,
+                        BossRecovery.DEFAULT_FLAT_HEALING,
+                        BossRecovery.DEFAULT_MAX_HEALTH_RATIO),
+                25.0,
+                "a 400-health boss must restore five plus five percent maximum health");
+        checkClose(BossRecovery.healingAmount(
+                        100.0F,
+                        BossRecovery.DEFAULT_FLAT_HEALING,
+                        BossRecovery.DEFAULT_MAX_HEALTH_RATIO),
+                10.0,
+                "a 100-health boss must restore ten health per second");
     }
 
     private static void verifyBarrierReduction() {
@@ -171,6 +191,70 @@ public final class SliderMechanicsSelfTest {
                 "skill positioning must respect speed-limited dash reach");
         checkClose(SliderMechanics.maximumDashReach(12.0, 5.0, 10), 12.0,
                 "skill positioning must clamp reach to the configured distance");
+        check(SliderMechanics.isDashExecutionStateValid(
+                        new Vec3(1.0, 0.0, 0.0), 8.0),
+                "a dash with direction and distance must be valid");
+        check(!SliderMechanics.isDashExecutionStateValid(Vec3.ZERO, 8.0),
+                "a dash without direction must be rejected");
+        check(!SliderMechanics.isDashExecutionStateValid(
+                        new Vec3(1.0, 0.0, 0.0), 0.0),
+                "a dash without distance must be rejected");
+        check(SliderMechanics.isDashIntervalStateValid(1, 2, true),
+                "a dash interval with remaining dashes and red box must be valid");
+        check(!SliderMechanics.isDashIntervalStateValid(2, 2, true),
+                "a completed dash sequence must not remain in interval state");
+        check(!SliderMechanics.isDashIntervalStateValid(1, 2, false),
+                "a dash interval without a locked red box must be rejected");
+    }
+
+    private static void verifyBehaviorModes() {
+        check(SliderMechanics.DEFAULT_CHASE_SPEED_MULTIPLIER >= 0.0,
+                "chase speed multiplier must not be negative");
+        checkClose(BossRefactorAetherConfig.SLIDER_MOVEMENT
+                        .chaseSpeedMultiplier.getDefault(),
+                SliderMechanics.DEFAULT_CHASE_SPEED_MULTIPLIER,
+                "chase speed configuration must match its mechanics default");
+        check(BossRefactorAetherConfig.SLIDER_TIMING
+                        .predictionTicks.getDefault()
+                        == SliderMechanics.CONTINUOUS_GLIDE_PREDICTION_TICKS,
+                "smart dash prediction ticks must use the configured default");
+        checkClose(BossRefactorAetherConfig.SLIDER_RANGE
+                        .continuousGlideMaxLeadDistance.getDefault(),
+                SliderMechanics.CONTINUOUS_GLIDE_MAX_LEAD_DISTANCE,
+                "smart dash maximum lead distance must use the configured default");
+        check(SliderBehaviorMode.PATROL.next() == SliderBehaviorMode.CHASE,
+                "Continuous Glide must switch patrol mode to chase mode");
+        check(SliderBehaviorMode.CHASE.next() == SliderBehaviorMode.PATROL,
+                "Continuous Glide must switch chase mode back to patrol mode");
+        check(SliderMechanics.chooseChaseDirection(
+                        Vec3.ZERO, new Vec3(3.0, 4.0, 2.0)) == Direction.UP,
+                "chase must choose Y only when its offset is strictly largest");
+        check(SliderMechanics.chooseChaseDirection(
+                        Vec3.ZERO, new Vec3(4.0, 4.0, 2.0)) == Direction.EAST,
+                "chase axis ties must preserve the original X-over-Y priority");
+        check(SliderMechanics.chooseChaseDirection(
+                        Vec3.ZERO, new Vec3(4.0, 2.0, 4.0)) == Direction.SOUTH,
+                "chase axis ties must preserve the original Z-over-X priority");
+        checkClose(SliderMechanics.chaseAxisDistance(
+                        Vec3.ZERO, new Vec3(5.0, 3.0, 2.0), Direction.EAST),
+                5.0,
+                "chase completion must measure only the locked axis");
+        checkClose(SliderMechanics.nextChaseVelocity(0.2, 0.8, 0.1), 0.3,
+                "chase movement must accelerate like the original Slider");
+        checkClose(SliderMechanics.nextChaseVelocity(0.75, 0.8, 0.1), 0.8,
+                "chase acceleration must clamp to its configured maximum");
+        Vec3 chaseMotion = SliderMechanics.directionMotion(Direction.NORTH, 0.5);
+        checkClose(chaseMotion.x, 0.0,
+                "single-axis chase must not leak into X");
+        checkClose(chaseMotion.y, 0.0,
+                "single-axis chase must not leak into Y");
+        checkClose(chaseMotion.z, -0.5,
+                "single-axis chase must retain direction and speed");
+        Vec3 clamped = SliderMechanics.clampToBounds(
+                new Vec3(20.0, -5.0, 7.0),
+                new AABB(0.0, 0.0, 0.0, 10.0, 10.0, 10.0));
+        check(clamped.equals(new Vec3(10.0, 0.0, 7.0)),
+                "chase targets must remain inside arena bounds");
     }
 
     private static void verifyDungeonLifecycle() {
@@ -248,6 +332,21 @@ public final class SliderMechanicsSelfTest {
     }
 
     private static void verifyDashGeometry() {
+        Vec3 predicted = SliderMechanics.predictHorizontalTarget(
+                new Vec3(5.0, 2.0, 3.0),
+                new Vec3(0.5, 1.0, -0.25), 8, 4.0);
+        checkClose(predicted.x, 8.577708763999663,
+                "smart dash prediction must lead horizontal player movement");
+        checkClose(predicted.y, 2.0,
+                "smart dash prediction must not alter target height");
+        checkClose(predicted.z, 1.2111456180001683,
+                "smart dash lead must clamp to its maximum distance");
+        check(SliderMechanics.isAxisDashReachable(
+                        Direction.Axis.X, 6.0, 1.0, 8.0, 8.0, 1.5),
+                "an X dash must accept a predicted target entering its lane");
+        check(!SliderMechanics.isAxisDashReachable(
+                        Direction.Axis.X, 6.0, 2.0, 8.0, 8.0, 1.5),
+                "an X dash must reject a target outside its locked lane");
         check(SliderMechanics.chooseAttackAxis(8.0, 2.0) == Direction.Axis.X,
                 "the larger X separation must produce an X attack lane");
         check(SliderMechanics.chooseAttackAxis(2.0, -8.0) == Direction.Axis.Z,
@@ -425,9 +524,10 @@ public final class SliderMechanicsSelfTest {
                                 SliderMovementPhase.IDLE,
                                 SliderMovementPhase.RETURNING_TO_EDGE,
                                 SliderMovementPhase.PATROLLING,
+                                SliderMovementPhase.CHASING,
                                 SliderMovementPhase.PAUSING_AT_CORNER,
                                 SliderMovementPhase.VERTICAL_ALIGNING}),
-                "base movement must contain only return, patrol, corner pause, and alignment");
+                "base movement must contain patrol, chase, pause, return, and alignment");
     }
 
     private static void verifyOriginalMovementSuppression() {
@@ -516,6 +616,12 @@ public final class SliderMechanicsSelfTest {
         state.patrolCollisionPositionInitialized = true;
         state.patrolCollisionPreviousPosition = new Vec3(2.0, 0.0, 3.0);
         state.patrolCollisionContacts.add(UUID.randomUUID());
+        state.chaseProgressInitialized = true;
+        state.chaseProgressPosition = new Vec3(4.0, 5.0, 6.0);
+        state.chaseProgressDistance = 7.0;
+        state.chaseDirection = Direction.UP;
+        state.chaseVelocity = 0.5;
+        state.chasePauseTicks = 6;
         state.skillPhase = SliderSkillPhase.DASHING;
 
         state.resetSkillTransient();
@@ -543,6 +649,13 @@ public final class SliderMechanicsSelfTest {
                         && state.patrolCollisionPreviousPosition.equals(Vec3.ZERO)
                         && state.patrolCollisionContacts.isEmpty(),
                 "a new activation must clear normal patrol collision tracking");
+        check(!state.chaseProgressInitialized
+                        && state.chaseProgressPosition.equals(Vec3.ZERO)
+                        && state.chaseProgressDistance == 0.0
+                        && state.chaseDirection == null
+                        && state.chaseVelocity == 0.0
+                        && state.chasePauseTicks == 0,
+                "a new activation must clear chase progress tracking");
         check(state.movementStallTicks == 0
                         && state.monitoredMovementPhase == SliderMovementPhase.IDLE,
                 "a new activation must clear movement stall tracking");
@@ -630,12 +743,15 @@ public final class SliderMechanicsSelfTest {
                 "parry recovery must not shorten a final barrier-break stun");
 
         SliderCombatState original = new SliderCombatState();
+        original.behaviorMode = SliderBehaviorMode.CHASE;
         original.stunEnd = 1100L;
         CompoundTag tag = new CompoundTag();
         original.write(tag, 1000L);
 
         SliderCombatState loaded = new SliderCombatState();
         loaded.read(tag, 2000L);
+        check(loaded.behaviorMode == SliderBehaviorMode.CHASE,
+                "Slider behavior mode must survive save and reload");
         check(loaded.isStunned(2099L), "a loaded stun must retain its final active tick");
         check(!loaded.isStunned(2100L), "a loaded stun must expire after 100 ticks");
     }

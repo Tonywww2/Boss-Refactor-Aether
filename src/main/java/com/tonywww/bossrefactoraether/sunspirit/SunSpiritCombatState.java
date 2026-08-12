@@ -23,6 +23,7 @@ public final class SunSpiritCombatState {
     int attackIndex;
     long summonReadyAt;
     long phaseSigilReadyAt;
+    int outOfCombatHealingTicks;
 
     SunSpiritAttackPhase attackPhase = SunSpiritAttackPhase.IDLE;
     int phaseTicks;
@@ -57,6 +58,7 @@ public final class SunSpiritCombatState {
         summonReadyAt = gameTime + Math.max(0L, tag.getLong(SUMMON_COOLDOWN_KEY));
         phaseSigilReadyAt = gameTime
                 + Math.max(0L, tag.getLong(PHASE_SIGIL_COOLDOWN_KEY));
+        outOfCombatHealingTicks = 0;
         resetTransient();
     }
 

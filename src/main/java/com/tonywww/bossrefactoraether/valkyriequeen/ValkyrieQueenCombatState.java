@@ -23,6 +23,7 @@ public final class ValkyrieQueenCombatState {
     long spearReadyAt;
     int basicIndex;
     int skillIndex;
+    int outOfCombatHealingTicks;
 
     ValkyrieQueenAttackPhase attackPhase = ValkyrieQueenAttackPhase.IDLE;
     ValkyrieQueenBasicAttack basicAttack = ValkyrieQueenBasicAttack.DIAGONAL_SLASH;
@@ -69,6 +70,7 @@ public final class ValkyrieQueenCombatState {
         spearReadyAt = gameTime + Math.max(0L, tag.getLong(SPEAR_COOLDOWN_KEY));
         basicIndex = Math.max(0, tag.getInt(BASIC_INDEX_KEY));
         skillIndex = Math.max(0, tag.getInt(SKILL_INDEX_KEY));
+        outOfCombatHealingTicks = 0;
         resetTransient();
     }
 
