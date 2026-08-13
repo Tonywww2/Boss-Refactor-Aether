@@ -1,26 +1,34 @@
 package com.tonywww.bossrefactoraether.slider;
 
+import com.tonywww.bossrefactoraether.BossStateNbt;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.HashSet;
+import java.util.OptionalInt;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.UUID;
 
 public final class SliderCombatState {
+    private static final int MAX_PERSISTED_BARRIER_LAYERS = 100;
+    private static final String DATA_VERSION_KEY =
+            "bossrefactoraether.slider.data_version";
+    private static final int CURRENT_DATA_VERSION = 1;
     private static final String BARRIER_LAYERS_KEY = "bossrefactoraether.slider.barrier_layers";
     private static final String PHASE_TWO_KEY = "bossrefactoraether.slider.phase_two";
     private static final String CHASE_MODE_KEY = "bossrefactoraether.slider.chase_mode";
     private static final String STUN_REMAINING_KEY = "bossrefactoraether.slider.stun_remaining";
     private static final String LEGACY_STUN_END_KEY = "bossrefactoraether.slider.stun_end";
-        private static final String STANDALONE_ARENA_KEY =
+    private static final String STANDALONE_ARENA_KEY =
             "bossrefactoraether.slider.standalone_arena";
-        private static final String STANDALONE_ARENA_X_KEY =
+    private static final String STANDALONE_ARENA_X_KEY =
             "bossrefactoraether.slider.standalone_arena_x";
-        private static final String STANDALONE_ARENA_Y_KEY =
+    private static final String STANDALONE_ARENA_Y_KEY =
             "bossrefactoraether.slider.standalone_arena_y";
-        private static final String STANDALONE_ARENA_Z_KEY =
+    private static final String STANDALONE_ARENA_Z_KEY =
             "bossrefactoraether.slider.standalone_arena_z";
 
     int barrierLayers = SliderMechanics.MAX_BARRIER_LAYERS;
@@ -31,6 +39,7 @@ public final class SliderCombatState {
     int outOfCombatHealingTicks;
     boolean standaloneArenaInitialized;
     Vec3 standaloneArenaCenter = Vec3.ZERO;
+    boolean standaloneArenaValidationPending;
 
     SliderMovementPhase movementPhase = SliderMovementPhase.IDLE;
     SliderMovementPhase resumeMovementPhase = SliderMovementPhase.RETURNING_TO_EDGE;
@@ -88,7 +97,7 @@ public final class SliderCombatState {
     }
 
     int extendStun(long gameTime, int ticks) {
-        long requestedEnd = gameTime + Math.max(0, ticks);
+        long requestedEnd = addRemaining(gameTime, Math.max(0, ticks));
         stunEnd = Math.max(stunEnd, requestedEnd);
         return (int) Math.min(Integer.MAX_VALUE, Math.max(0L, stunEnd - gameTime));
     }
@@ -102,7 +111,7 @@ public final class SliderCombatState {
     }
 
     public boolean hasStandaloneArena() {
-        return standaloneArenaInitialized;
+        return standaloneArenaInitialized && isFinite(standaloneArenaCenter);
     }
 
     public Vec3 getStandaloneArenaCenter() {
@@ -110,10 +119,35 @@ public final class SliderCombatState {
     }
 
     void initializeStandaloneArena(Vec3 center) {
-        if (!standaloneArenaInitialized) {
+        if (!hasStandaloneArena() && isFinite(center)) {
             standaloneArenaCenter = center;
             standaloneArenaInitialized = true;
         }
+        standaloneArenaValidationPending = false;
+    }
+
+    void ensureStandaloneArena(
+            Vec3 currentPosition, double horizontalRadius, double verticalRadius) {
+        if (!isFinite(currentPosition)) {
+            return;
+        }
+        if (!hasStandaloneArena()
+                || (standaloneArenaValidationPending
+                    && !SliderMechanics.isPositionWithinArenaRoom(
+                        SliderMechanics.standaloneRoomBounds(
+                            standaloneArenaCenter, horizontalRadius, verticalRadius),
+                        currentPosition,
+                        SliderMechanics.ARENA_VALIDATION_TOLERANCE))) {
+            standaloneArenaCenter = currentPosition;
+            standaloneArenaInitialized = true;
+        }
+        standaloneArenaValidationPending = false;
+    }
+
+    void clearStandaloneArena() {
+        standaloneArenaInitialized = false;
+        standaloneArenaCenter = Vec3.ZERO;
+        standaloneArenaValidationPending = false;
     }
 
     boolean requiresLiveTarget() {
@@ -167,11 +201,13 @@ public final class SliderCombatState {
     }
 
     public void write(CompoundTag tag, long gameTime) {
+        tag.putInt(DATA_VERSION_KEY, CURRENT_DATA_VERSION);
         tag.putInt(BARRIER_LAYERS_KEY, Math.max(0, barrierLayers));
         tag.putBoolean(PHASE_TWO_KEY, phaseTwo);
         tag.putBoolean(CHASE_MODE_KEY, behaviorMode == SliderBehaviorMode.CHASE);
-        tag.putBoolean(STANDALONE_ARENA_KEY, standaloneArenaInitialized);
-        if (standaloneArenaInitialized) {
+        boolean hasStandaloneArena = hasStandaloneArena();
+        tag.putBoolean(STANDALONE_ARENA_KEY, hasStandaloneArena);
+        if (hasStandaloneArena) {
             tag.putDouble(STANDALONE_ARENA_X_KEY, standaloneArenaCenter.x);
             tag.putDouble(STANDALONE_ARENA_Y_KEY, standaloneArenaCenter.y);
             tag.putDouble(STANDALONE_ARENA_Z_KEY, standaloneArenaCenter.z);
@@ -190,30 +226,66 @@ public final class SliderCombatState {
     }
 
     public void read(CompoundTag tag, long gameTime) {
-        barrierLayers = tag.contains(BARRIER_LAYERS_KEY)
-            ? Math.max(0, tag.getInt(BARRIER_LAYERS_KEY))
-            : SliderMechanics.MAX_BARRIER_LAYERS;
-        phaseTwo = tag.getBoolean(PHASE_TWO_KEY);
-        behaviorMode = tag.getBoolean(CHASE_MODE_KEY)
+        OptionalInt persistedBarrierLayers = BossStateNbt.readNonNegativeInt(
+                tag, BARRIER_LAYERS_KEY, MAX_PERSISTED_BARRIER_LAYERS);
+        boolean hasBarrierLayers = persistedBarrierLayers.isPresent();
+        barrierLayers = persistedBarrierLayers.orElse(
+                SliderMechanics.MAX_BARRIER_LAYERS);
+        phaseTwo = tag.contains(PHASE_TWO_KEY, Tag.TAG_BYTE)
+            && tag.getBoolean(PHASE_TWO_KEY);
+        behaviorMode = tag.contains(CHASE_MODE_KEY, Tag.TAG_BYTE)
+            && tag.getBoolean(CHASE_MODE_KEY)
             ? SliderBehaviorMode.CHASE
             : SliderBehaviorMode.PATROL;
-        if (tag.contains(STUN_REMAINING_KEY)) {
-            stunEnd = gameTime + Math.max(0L, tag.getLong(STUN_REMAINING_KEY));
-        } else if (tag.contains(LEGACY_STUN_END_KEY)) {
-            stunEnd = Math.max(gameTime, tag.getLong(LEGACY_STUN_END_KEY));
+        OptionalLong remainingStun = BossStateNbt.readDuration(
+            tag, STUN_REMAINING_KEY);
+        if (remainingStun.isPresent()) {
+            stunEnd = addRemaining(gameTime, remainingStun.getAsLong());
         } else {
-            stunEnd = 0L;
+            long maximumLegacyEnd = addRemaining(
+                gameTime, BossStateNbt.MAX_DURATION_TICKS);
+            OptionalLong legacyStunEnd = BossStateNbt.readNonNegativeLong(
+                tag, LEGACY_STUN_END_KEY, maximumLegacyEnd);
+            stunEnd = legacyStunEnd.isPresent()
+                && legacyStunEnd.getAsLong() > gameTime
+                ? legacyStunEnd.getAsLong()
+                : 0L;
         }
-        standaloneArenaInitialized = tag.getBoolean(STANDALONE_ARENA_KEY);
+        boolean hasStandaloneCoordinates =
+            tag.contains(STANDALONE_ARENA_X_KEY, Tag.TAG_ANY_NUMERIC)
+            && tag.contains(STANDALONE_ARENA_Y_KEY, Tag.TAG_ANY_NUMERIC)
+            && tag.contains(STANDALONE_ARENA_Z_KEY, Tag.TAG_ANY_NUMERIC);
+        Vec3 loadedStandaloneCenter = hasStandaloneCoordinates
+            ? new Vec3(
+                tag.getDouble(STANDALONE_ARENA_X_KEY),
+                tag.getDouble(STANDALONE_ARENA_Y_KEY),
+                tag.getDouble(STANDALONE_ARENA_Z_KEY))
+            : Vec3.ZERO;
+        standaloneArenaInitialized = tag.contains(
+                STANDALONE_ARENA_KEY, Tag.TAG_BYTE)
+            && tag.getBoolean(STANDALONE_ARENA_KEY)
+            && hasStandaloneCoordinates
+            && isFinite(loadedStandaloneCenter);
         standaloneArenaCenter = standaloneArenaInitialized
-                ? new Vec3(
-                    tag.getDouble(STANDALONE_ARENA_X_KEY),
-                    tag.getDouble(STANDALONE_ARENA_Y_KEY),
-                    tag.getDouble(STANDALONE_ARENA_Z_KEY))
-                : Vec3.ZERO;
-        configuredStateInitialized = true;
+            ? loadedStandaloneCenter
+            : Vec3.ZERO;
+        standaloneArenaValidationPending = standaloneArenaInitialized;
+        configuredStateInitialized = hasBarrierLayers;
         outOfCombatHealingTicks = 0;
         resetTransient();
+    }
+
+    private static long addRemaining(long gameTime, long remaining) {
+        long safeRemaining = Math.max(0L, remaining);
+        return gameTime > Long.MAX_VALUE - safeRemaining
+                ? Long.MAX_VALUE
+                : gameTime + safeRemaining;
+    }
+
+    private static boolean isFinite(Vec3 position) {
+        return Double.isFinite(position.x)
+                && Double.isFinite(position.y)
+                && Double.isFinite(position.z);
     }
 
     public void resetTransient() {

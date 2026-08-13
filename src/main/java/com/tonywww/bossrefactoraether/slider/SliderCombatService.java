@@ -79,13 +79,36 @@ public final class SliderCombatService {
     }
 
     public static void ensureArena(Slider slider) {
-        if (slider.getDungeon() == null) {
-            state(slider).initializeStandaloneArena(slider.position());
+        SliderCombatState state = state(slider);
+        if (hasUsableDungeonArena(slider)) {
+            state.clearStandaloneArena();
+            return;
         }
+        if (slider.getDungeon() != null) {
+            slider.setDungeon(null);
+        }
+        state.ensureStandaloneArena(
+                slider.position(),
+                BossRefactorAetherConfig.SLIDER_RANGE
+                        .standaloneRoomHorizontalRadius.get(),
+                BossRefactorAetherConfig.SLIDER_RANGE
+                        .standaloneRoomVerticalRadius.get());
     }
 
     public static boolean hasArena(Slider slider) {
-        return slider.getDungeon() != null || state(slider).hasStandaloneArena();
+        return hasUsableDungeonArena(slider) || state(slider).hasStandaloneArena();
+    }
+
+    public static boolean controlsChaseTravel(Slider slider) {
+        if (slider.level().isClientSide()) {
+            return false;
+        }
+        SliderCombatState state = state(slider);
+        return SliderMechanics.shouldOwnChaseTravel(
+            true,
+            state.skillPhase == SliderSkillPhase.IDLE,
+            state.behaviorMode,
+            state.movementPhase);
     }
 
     public static boolean isDamageAllowedFromArena(
@@ -111,7 +134,7 @@ public final class SliderCombatService {
     }
 
     public static void trackDungeonWithoutRoomReset(Slider slider) {
-        if (slider.getDungeon() == null) {
+        if (!hasUsableDungeonArena(slider)) {
             return;
         }
         slider.getDungeon().trackPlayers();
@@ -579,6 +602,14 @@ public final class SliderCombatService {
             return;
         }
 
+        SliderBehaviorMode availableMode = state.behaviorMode
+                .forTargetAvailability(target != null);
+        if (availableMode != state.behaviorMode) {
+            state.behaviorMode = availableMode;
+            beginReturnToEdge(slider);
+            return;
+        }
+
         if (state.behaviorMode == SliderBehaviorMode.CHASE) {
             if (state.movementPhase == SliderMovementPhase.IDLE) {
                 beginChase(slider);
@@ -673,13 +704,17 @@ public final class SliderCombatService {
     }
 
     private static void beginChase(Slider slider) {
+        beginChase(slider, 0);
+    }
+
+    private static void beginChase(Slider slider, int pauseTicks) {
         SliderCombatState state = state(slider);
         state.movementPhase = SliderMovementPhase.CHASING;
         state.chaseProgressInitialized = false;
         state.chaseProgressPosition = slider.position();
         state.chaseDirection = null;
         state.chaseVelocity = 0.0;
-        state.chasePauseTicks = 0;
+        state.chasePauseTicks = Math.max(0, pauseTicks);
         stopArenaMovement(slider);
     }
 
@@ -687,7 +722,8 @@ public final class SliderCombatService {
             Slider slider, @Nullable LivingEntity target) {
         recordChaseProgress(slider);
         if (target == null) {
-            resetChaseSegment(slider, false);
+            state(slider).behaviorMode = SliderBehaviorMode.PATROL;
+            beginReturnToEdge(slider);
             return;
         }
         if (state(slider).chasePauseTicks > 0) {
@@ -730,18 +766,20 @@ public final class SliderCombatService {
             resetChaseSegment(slider, true);
             return;
         }
-        double speedMultiplier = movementMultiplier(slider)
-            * BossRefactorAetherConfig.SLIDER_MOVEMENT
-                .chaseSpeedMultiplier.get();
+        double movementMultiplier = movementMultiplier(slider);
+        double chaseSpeedMultiplier = BossRefactorAetherConfig.SLIDER_MOVEMENT
+            .chaseSpeedMultiplier.get();
+        double speedMultiplier = movementMultiplier * chaseSpeedMultiplier;
         double maximumVelocity = slider.getMaxVelocity() * speedMultiplier;
-        double velocityIncrease = slider.getVelocityIncrease() * speedMultiplier;
+        double velocityIncrease = SliderMechanics.configuredChaseAcceleration(
+            BossRefactorAetherConfig.SLIDER_MOVEMENT
+                .chaseAcceleration.get(),
+            movementMultiplier,
+            chaseSpeedMultiplier);
         state.chaseVelocity = SliderMechanics.nextChaseVelocity(
             state.chaseVelocity, maximumVelocity, velocityIncrease);
         double step = Math.min(remainingDistance, state.chaseVelocity);
-        slider.setMoveDirection(state.chaseDirection);
-        slider.setTargetPoint(null);
-        slider.setDeltaMovement(SliderMechanics.directionMotion(
-            state.chaseDirection, step));
+        moveOwnedChase(slider, state.chaseDirection, step, bounds);
     }
 
         private static void resetChaseSegment(
@@ -761,7 +799,8 @@ public final class SliderCombatService {
             state.chaseProgressPosition = currentPosition;
             return;
         }
-        state.chaseProgressDistance += currentPosition.distanceTo(
+        state.chaseProgressDistance += SliderMechanics.horizontalDistance(
+            currentPosition,
                 state.chaseProgressPosition);
         state.chaseProgressPosition = currentPosition;
 
@@ -947,7 +986,17 @@ public final class SliderCombatService {
                 .verticalAlignmentTolerance.get(),
                 arenaMovementSpeed(slider, BossRefactorAetherConfig.SLIDER_MOVEMENT
                     .verticalAlignmentSpeedMultiplier.get()));
-        setVerticalMovement(slider, step);
+        if (state.behaviorMode == SliderBehaviorMode.CHASE) {
+            AABB bounds = chaseBounds(slider);
+            if (bounds == null) {
+                stopArenaMovement(slider);
+                return;
+            }
+            Direction direction = step >= 0.0 ? Direction.UP : Direction.DOWN;
+            moveOwnedChase(slider, direction, Math.abs(step), bounds);
+        } else {
+            setVerticalMovement(slider, step);
+        }
     }
 
     private static boolean needsVerticalAlignment(Slider slider, LivingEntity target) {
@@ -1005,20 +1054,22 @@ public final class SliderCombatService {
 
     @Nullable
     private static LivingEntity validTarget(Slider slider) {
-        LivingEntity target = slider.getTarget();
-        if (isEligibleTarget(slider, target)) {
-            return target;
-        }
         AABB room = arenaRoomBounds(slider);
         if (room == null) {
             slider.setTarget(null);
             return null;
         }
+        LivingEntity target = slider.getTarget();
+        if (isEligibleTarget(slider, target)
+                && isInsideArena(room, target)) {
+            return target;
+        }
         Player nearest = null;
         double nearestDistance = Double.MAX_VALUE;
         for (Player player : slider.level().getEntitiesOfClass(
                 Player.class, room,
-                candidate -> isEligibleTarget(slider, candidate))) {
+                candidate -> isEligibleTarget(slider, candidate)
+                        && isInsideArena(room, candidate))) {
             double distance = slider.distanceToSqr(player);
             if (distance < nearestDistance) {
                 nearest = player;
@@ -1027,6 +1078,11 @@ public final class SliderCombatService {
         }
         slider.setTarget(nearest);
         return nearest;
+    }
+
+    private static boolean isInsideArena(AABB room, Entity entity) {
+        return SliderMechanics.isPositionWithinArenaRoom(
+                room, entity.position(), 0.0);
     }
 
     private static boolean isEligibleTarget(
@@ -1079,6 +1135,15 @@ public final class SliderCombatService {
     private static void setVerticalMovement(Slider slider, double movement) {
         slider.setMoveDirection(movement >= 0.0 ? Direction.UP : Direction.DOWN);
         slider.setDeltaMovement(new Vec3(0.0, movement, 0.0));
+    }
+
+    private static void moveOwnedChase(
+            Slider slider, Direction direction, double step, AABB bounds) {
+        slider.setMoveDirection(direction);
+        slider.setTargetPoint(null);
+        slider.setPos(SliderMechanics.chasePositionAfterStep(
+                slider.position(), direction, step, bounds));
+        slider.setDeltaMovement(Vec3.ZERO);
     }
 
     private static Direction horizontalDirection(Direction.Axis axis, double movement) {
@@ -1158,14 +1223,31 @@ public final class SliderCombatService {
 
     @Nullable
     private static AABB arenaRoomBounds(Slider slider) {
-        if (slider.getDungeon() != null) {
-            return slider.getDungeon().roomBounds();
+        if (hasUsableDungeonArena(slider)) {
+            return configuredRoomBounds(
+                    slider.getDungeon().originCoordinates());
         }
         SliderCombatState state = state(slider);
         return state.hasStandaloneArena()
-                ? SliderMechanics.standaloneRoomBounds(
-                    state.getStandaloneArenaCenter())
+                ? configuredRoomBounds(state.getStandaloneArenaCenter())
                 : null;
+    }
+
+    private static AABB configuredRoomBounds(Vec3 center) {
+        return SliderMechanics.configuredRoomBounds(
+                center,
+                BossRefactorAetherConfig.SLIDER_RANGE
+                        .standaloneRoomHorizontalRadius.get(),
+                BossRefactorAetherConfig.SLIDER_RANGE
+                        .standaloneRoomVerticalRadius.get());
+    }
+
+    private static boolean hasUsableDungeonArena(Slider slider) {
+        return slider.getDungeon() != null
+                && SliderMechanics.isFinitePosition(
+                    slider.getDungeon().originCoordinates())
+                && SliderMechanics.isValidArenaRoom(
+                    slider.getDungeon().roomBounds());
     }
 
     private static double horizontalDistanceSquared(Vec3 first, Vec3 second) {
@@ -1330,11 +1412,13 @@ public final class SliderCombatService {
         clearTelegraph(slider);
         slider.setMoveDirection(null);
         slider.setTargetPoint(null);
-        slider.setMoveDelay(slider.calculateMoveDelay());
         slider.setDeltaMovement(Vec3.ZERO);
         state.behaviorMode = state.behaviorMode.next();
         state.chaseProgressDistance = 0.0;
-        beginBehaviorMovement(slider);
+        beginBehaviorMovement(
+            slider,
+            BossRefactorAetherConfig.SLIDER_TIMING
+                .perimeterCornerPauseTicks.get());
     }
 
     private static void cancelSkill(Slider slider) {
@@ -1351,8 +1435,16 @@ public final class SliderCombatService {
     }
 
     private static void beginBehaviorMovement(Slider slider) {
-        if (state(slider).behaviorMode == SliderBehaviorMode.CHASE) {
-            beginChase(slider);
+        beginBehaviorMovement(slider, 0);
+    }
+
+    private static void beginBehaviorMovement(
+            Slider slider, int chasePauseTicks) {
+        SliderCombatState state = state(slider);
+        state.behaviorMode = state.behaviorMode.forTargetAvailability(
+                validTarget(slider) != null);
+        if (state.behaviorMode == SliderBehaviorMode.CHASE) {
+            beginChase(slider, chasePauseTicks);
         } else {
             beginReturnToEdge(slider);
         }

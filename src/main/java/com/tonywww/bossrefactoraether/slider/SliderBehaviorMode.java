@@ -7,4 +7,8 @@ public enum SliderBehaviorMode {
     public SliderBehaviorMode next() {
         return this == PATROL ? CHASE : PATROL;
     }
+
+    public SliderBehaviorMode forTargetAvailability(boolean hasArenaTarget) {
+        return this == CHASE && !hasArenaTarget ? PATROL : this;
+    }
 }

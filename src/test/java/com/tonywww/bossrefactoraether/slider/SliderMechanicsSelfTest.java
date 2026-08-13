@@ -214,6 +214,17 @@ public final class SliderMechanicsSelfTest {
                         .chaseSpeedMultiplier.getDefault(),
                 SliderMechanics.DEFAULT_CHASE_SPEED_MULTIPLIER,
                 "chase speed configuration must match its mechanics default");
+        checkClose(BossRefactorAetherConfig.SLIDER_MOVEMENT
+                        .chaseAcceleration.getDefault(),
+                SliderMechanics.DEFAULT_CHASE_ACCELERATION,
+                "chase acceleration must use the original full-health default");
+        double ownedChaseAcceleration = SliderMechanics.configuredChaseAcceleration(
+                SliderMechanics.DEFAULT_CHASE_ACCELERATION, 0.4, 1.6);
+        checkClose(ownedChaseAcceleration, 0.013866666666666668,
+                "owned chase acceleration must not depend on scaled entity health");
+        check(SliderMechanics.nextChaseVelocity(
+                        0.0, 1.6, ownedChaseAcceleration) > 0.0,
+                "owned chase must accelerate from rest at arbitrary entity health");
         check(BossRefactorAetherConfig.SLIDER_TIMING
                         .predictionTicks.getDefault()
                         == SliderMechanics.CONTINUOUS_GLIDE_PREDICTION_TICKS,
@@ -226,6 +237,36 @@ public final class SliderMechanicsSelfTest {
                 "Continuous Glide must switch patrol mode to chase mode");
         check(SliderBehaviorMode.CHASE.next() == SliderBehaviorMode.PATROL,
                 "Continuous Glide must switch chase mode back to patrol mode");
+        check(SliderBehaviorMode.CHASE.forTargetAvailability(false)
+                        == SliderBehaviorMode.PATROL,
+                "chase without an arena target must resume perimeter patrol");
+        check(SliderBehaviorMode.CHASE.forTargetAvailability(true)
+                        == SliderBehaviorMode.CHASE,
+                "chase with an arena target must remain active");
+        check(SliderBehaviorMode.PATROL.forTargetAvailability(false)
+                        == SliderBehaviorMode.PATROL,
+                "patrol without a target must continue instead of stopping");
+        check(SliderMechanics.shouldOwnChaseTravel(
+                        true, true,
+                        SliderBehaviorMode.CHASE, SliderMovementPhase.CHASING),
+                "server-side idle chase must suppress original travel");
+        check(SliderMechanics.shouldOwnChaseTravel(
+                        true, true,
+                        SliderBehaviorMode.CHASE,
+                        SliderMovementPhase.VERTICAL_ALIGNING),
+                "server-side chase alignment must suppress original travel");
+        check(!SliderMechanics.shouldOwnChaseTravel(
+                        false, true,
+                        SliderBehaviorMode.CHASE, SliderMovementPhase.CHASING),
+                "client travel must remain available for network interpolation");
+        check(!SliderMechanics.shouldOwnChaseTravel(
+                        true, false,
+                        SliderBehaviorMode.CHASE, SliderMovementPhase.CHASING),
+                "Continuous Glide must retain its delta-movement travel");
+        check(!SliderMechanics.shouldOwnChaseTravel(
+                        true, true,
+                        SliderBehaviorMode.PATROL, SliderMovementPhase.PATROLLING),
+                "perimeter patrol must retain its existing travel path");
         check(SliderMechanics.chooseChaseDirection(
                         Vec3.ZERO, new Vec3(3.0, 4.0, 2.0)) == Direction.UP,
                 "chase must choose Y only when its offset is strictly largest");
@@ -250,6 +291,23 @@ public final class SliderMechanicsSelfTest {
                 "single-axis chase must not leak into Y");
         checkClose(chaseMotion.z, -0.5,
                 "single-axis chase must retain direction and speed");
+        AABB chaseBounds = new AABB(-5.0, 0.0, -5.0, 5.0, 10.0, 5.0);
+        check(SliderMechanics.chasePositionAfterStep(
+                        Vec3.ZERO, Direction.EAST, 0.5, chaseBounds)
+                        .equals(new Vec3(0.5, 0.0, 0.0)),
+                "owned chase movement must advance position immediately");
+        check(SliderMechanics.chasePositionAfterStep(
+                        new Vec3(4.9, 0.0, 0.0), Direction.EAST, 0.5, chaseBounds)
+                        .equals(new Vec3(5.0, 0.0, 0.0)),
+                "owned chase movement must remain inside authoritative bounds");
+        checkClose(SliderMechanics.horizontalDistance(
+                        Vec3.ZERO, new Vec3(3.0, 12.0, 4.0)),
+                5.0,
+                "chase progress must count only horizontal movement");
+        checkClose(SliderMechanics.horizontalDistance(
+                        Vec3.ZERO, new Vec3(0.0, 12.0, 0.0)),
+                0.0,
+                "vertical chase must not grant perimeter progress");
         Vec3 clamped = SliderMechanics.clampToBounds(
                 new Vec3(20.0, -5.0, 7.0),
                 new AABB(0.0, 0.0, 0.0, 10.0, 10.0, 10.0));
@@ -268,6 +326,14 @@ public final class SliderMechanicsSelfTest {
 
     private static void verifyStandaloneArena() {
         Vec3 center = new Vec3(12.5, 80.0, -4.5);
+        checkClose(BossRefactorAetherConfig.SLIDER_RANGE
+                        .standaloneRoomHorizontalRadius.getDefault(),
+                SliderMechanics.STANDALONE_ROOM_HORIZONTAL_RADIUS,
+                "standalone room horizontal radius must use the configured default");
+        checkClose(BossRefactorAetherConfig.SLIDER_RANGE
+                        .standaloneRoomVerticalRadius.getDefault(),
+                SliderMechanics.STANDALONE_ROOM_VERTICAL_RADIUS,
+                "standalone room vertical radius must use the configured default");
         AABB room = SliderMechanics.standaloneRoomBounds(center);
         checkClose(room.minX,
                 center.x - SliderMechanics.STANDALONE_ROOM_HORIZONTAL_RADIUS,
@@ -288,6 +354,51 @@ public final class SliderMechanicsSelfTest {
                 center.z + SliderMechanics.STANDALONE_ROOM_HORIZONTAL_RADIUS,
                 "a summoned Slider room must extend its configured radius south");
 
+        AABB configuredRoom = SliderMechanics.standaloneRoomBounds(center, 17.0, 9.0);
+        checkClose(configuredRoom.minX, center.x - 17.0,
+                "a summoned Slider room must apply its custom horizontal radius");
+        checkClose(configuredRoom.maxY, center.y + 9.0,
+                "a summoned Slider room must apply its custom vertical radius");
+        checkClose(configuredRoom.maxZ, center.z + 17.0,
+                "a custom horizontal radius must apply to both horizontal axes");
+
+        AABB corridorExpandedTrackerRoom = new AABB(
+                center.x - 11.0, center.y - 7.0, center.z - 11.0,
+                center.x + 35.0, center.y + 7.0, center.z + 11.0);
+        AABB forcedTrackerRoom = SliderMechanics.configuredRoomBounds(
+                center, 11.0, 7.0);
+        check(corridorExpandedTrackerRoom.maxX > forcedTrackerRoom.maxX,
+                "the regression fixture must extend one tracker edge into a corridor");
+        checkClose(forcedTrackerRoom.minX, center.x - 11.0,
+                "tracked rooms must force the configured west radius");
+        checkClose(forcedTrackerRoom.maxX, center.x + 11.0,
+                "tracked rooms must ignore an east-side corridor extension");
+        checkClose(forcedTrackerRoom.minZ, center.z - 11.0,
+                "tracked rooms must force the configured north radius");
+        checkClose(forcedTrackerRoom.maxZ, center.z + 11.0,
+                "tracked rooms must force the configured south radius");
+        Vec3 eastDashFinish = new Vec3(
+                forcedTrackerRoom.maxX, center.y, center.z);
+        Vec3 corridorTarget = eastDashFinish.add(12.0, 0.0, 0.0);
+        check(SliderMechanics.clampToBounds(
+                        corridorTarget, forcedTrackerRoom).equals(eastDashFinish),
+                "the regression fixture must reproduce a chase clamped to the dash endpoint");
+        boolean hasArenaTarget = SliderMechanics.isPositionWithinArenaRoom(
+                forcedTrackerRoom, corridorTarget, 0.0);
+        check(!hasArenaTarget,
+                "a target in the tracker corridor must be outside the authoritative room");
+        check(SliderBehaviorMode.CHASE.forTargetAvailability(hasArenaTarget)
+                        == SliderBehaviorMode.PATROL,
+                "a corridor target must not leave Slider stopped in chase at the dash endpoint");
+        check(SliderMechanics.isValidArenaRoom(configuredRoom),
+                "a finite room with volume must be accepted");
+        check(!SliderMechanics.isValidArenaRoom(
+                        new AABB(0.0, 0.0, 0.0, 0.0, 1.0, 1.0)),
+                "a degenerate dungeon tracker room must be rejected");
+        check(!SliderMechanics.isValidArenaRoom(
+                        new AABB(Double.NaN, 0.0, 0.0, 1.0, 1.0, 1.0)),
+                "a non-finite dungeon tracker room must be rejected");
+
         SliderCombatState state = new SliderCombatState();
         state.initializeStandaloneArena(center);
         state.initializeStandaloneArena(center.add(20.0, 0.0, 0.0));
@@ -304,6 +415,72 @@ public final class SliderMechanicsSelfTest {
                 "a summoned Slider arena must survive save and reload");
         check(loaded.getStandaloneArenaCenter().equals(center),
                 "a reloaded summoned Slider must retain its original room center");
+
+        CompoundTag missingState = new CompoundTag();
+        SliderCombatState migrated = new SliderCombatState();
+        migrated.read(missingState, 2000L);
+        check(!migrated.configuredStateInitialized,
+                "a pre-mod Slider must initialize barriers from current config");
+        check(!migrated.hasStandaloneArena(),
+                "a pre-mod Slider must begin without a fabricated room center");
+        Vec3 finalSpawnPosition = new Vec3(48.0, 90.0, -32.0);
+        migrated.ensureStandaloneArena(finalSpawnPosition, 17.0, 9.0);
+        check(migrated.getStandaloneArenaCenter().equals(finalSpawnPosition),
+                "a pre-mod or newly summoned Slider must anchor at its final position");
+
+        CompoundTag overflowedBarrier = new CompoundTag();
+        overflowedBarrier.putLong(
+                "bossrefactoraether.slider.barrier_layers", 4_294_967_296L);
+        SliderCombatState repairedBarrier = new SliderCombatState();
+        repairedBarrier.read(overflowedBarrier, 2000L);
+        check(!repairedBarrier.configuredStateInitialized
+                        && repairedBarrier.barrierLayers
+                            == SliderMechanics.MAX_BARRIER_LAYERS,
+                "an overflowing barrier value must use configured initialization");
+
+        CompoundTag incompleteArena = new CompoundTag();
+        incompleteArena.putBoolean(
+                "bossrefactoraether.slider.standalone_arena", true);
+        incompleteArena.putDouble(
+                "bossrefactoraether.slider.standalone_arena_x", 10.0);
+        SliderCombatState incomplete = new SliderCombatState();
+        incomplete.read(incompleteArena, 2000L);
+        check(!incomplete.hasStandaloneArena(),
+                "an incomplete persisted room center must be discarded");
+
+        CompoundTag nonFiniteArena = new CompoundTag();
+        nonFiniteArena.putBoolean(
+                "bossrefactoraether.slider.standalone_arena", true);
+        nonFiniteArena.putDouble(
+                "bossrefactoraether.slider.standalone_arena_x", Double.NaN);
+        nonFiniteArena.putDouble(
+                "bossrefactoraether.slider.standalone_arena_y", 80.0);
+        nonFiniteArena.putDouble(
+                "bossrefactoraether.slider.standalone_arena_z", Double.POSITIVE_INFINITY);
+        SliderCombatState nonFinite = new SliderCombatState();
+        nonFinite.read(nonFiniteArena, 2000L);
+        check(!nonFinite.hasStandaloneArena(),
+                "a non-finite persisted room center must be discarded");
+
+        CompoundTag displacedArena = new CompoundTag();
+        displacedArena.putBoolean(
+                "bossrefactoraether.slider.standalone_arena", true);
+        displacedArena.putDouble(
+                "bossrefactoraether.slider.standalone_arena_x", 0.0);
+        displacedArena.putDouble(
+                "bossrefactoraether.slider.standalone_arena_y", 0.0);
+        displacedArena.putDouble(
+                "bossrefactoraether.slider.standalone_arena_z", 0.0);
+        SliderCombatState displaced = new SliderCombatState();
+        displaced.read(displacedArena, 2000L);
+        displaced.ensureStandaloneArena(finalSpawnPosition, 17.0, 9.0);
+        check(displaced.getStandaloneArenaCenter().equals(finalSpawnPosition),
+                "a persisted room far from the loaded Slider must be re-anchored once");
+
+        CompoundTag migratedTag = new CompoundTag();
+        migrated.write(migratedTag, 2000L);
+        check(migratedTag.getInt("bossrefactoraether.slider.data_version") == 1,
+                "new Slider state must carry an explicit data version");
     }
 
     private static void verifyArenaDamageProtection() {
@@ -754,6 +931,14 @@ public final class SliderMechanicsSelfTest {
                 "Slider behavior mode must survive save and reload");
         check(loaded.isStunned(2099L), "a loaded stun must retain its final active tick");
         check(!loaded.isStunned(2100L), "a loaded stun must expire after 100 ticks");
+
+        CompoundTag corrupt = new CompoundTag();
+        corrupt.putLong(
+                "bossrefactoraether.slider.stun_remaining", Long.MAX_VALUE);
+        SliderCombatState saturated = new SliderCombatState();
+        saturated.read(corrupt, 2000L);
+        check(!saturated.isStunned(2000L),
+                "a corrupt oversized stun duration must be discarded");
     }
 
         private static void verifyTelegraphMixinContracts() {
@@ -766,6 +951,12 @@ public final class SliderMechanicsSelfTest {
                                 .noneMatch(name -> name.equals("bossRefactorAether$scaleAcceleration")
                                         || name.equals("bossRefactorAether$scaleMaxVelocity")),
                                 "SliderMixin must not rewrite Aether's base movement-speed methods");
+                check(Arrays.stream(SliderMixin.class.getDeclaredMethods())
+                                .anyMatch(method -> method.getName().equals("travel")
+                                        && Arrays.equals(
+                                            method.getParameterTypes(),
+                                            new Class<?>[] {Vec3.class})),
+                                "SliderMixin must override travel to isolate owned chase movement");
                 check(Arrays.stream(SliderMixin.class.getDeclaredMethods())
                                 .map(Method::getName)
                                 .anyMatch(name -> name.equals(

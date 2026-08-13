@@ -168,6 +168,34 @@ public final class ValkyrieQueenMechanicsSelfTest {
                 "basic attack rotation must survive a save and load");
         check(loaded.skillIndex == 3,
                 "martial-skill rotation must survive a save and load");
+
+        ValkyrieQueenCombatState missing = new ValkyrieQueenCombatState();
+        missing.read(new CompoundTag(), 2000L);
+        check(!missing.phaseTwo,
+                "a pre-mod Queen must begin in phase one");
+        check(missing.teleportReadyAt == 0L
+                        && missing.skillReadyAt == 0L
+                        && missing.spearReadyAt == 0L,
+                "missing Queen cooldowns must retain first-tick initialization sentinels");
+        check(missing.basicIndex == 0 && missing.skillIndex == 0,
+                "missing Queen rotations must begin at their first entries");
+
+        CompoundTag partial = new CompoundTag();
+        partial.putLong("bossrefactoraether.valkyrie_queen.teleport_cooldown", 40L);
+        partial.putString("bossrefactoraether.valkyrie_queen.skill_cooldown", "invalid");
+        partial.putLong("bossrefactoraether.valkyrie_queen.spear_cooldown", Long.MAX_VALUE);
+        partial.putLong("bossrefactoraether.valkyrie_queen.basic_index", 4_294_967_296L);
+        ValkyrieQueenCombatState migrated = new ValkyrieQueenCombatState();
+        migrated.read(partial, 2000L);
+        check(migrated.teleportReadyAt == 2040L,
+                "a valid legacy Queen cooldown must be retained");
+        check(migrated.skillReadyAt == 0L && migrated.spearReadyAt == 0L,
+                "missing, mistyped, or oversized Queen cooldowns must be reinitialized");
+        check(migrated.basicIndex == 0,
+                "an overflowing Queen rotation index must be discarded");
+
+        check(tag.getInt("bossrefactoraether.valkyrie_queen.data_version") == 1,
+                "new Queen state must carry an explicit data version");
     }
 
     private static void checkClose(double actual, double expected, String message) {

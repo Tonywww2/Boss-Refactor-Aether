@@ -1,15 +1,22 @@
 package com.tonywww.bossrefactoraether.valkyriequeen;
 
+import com.tonywww.bossrefactoraether.BossStateNbt;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.UUID;
 
 public final class ValkyrieQueenCombatState {
+    private static final int MAX_ROTATION_INDEX = Integer.MAX_VALUE - 1;
+    private static final String DATA_VERSION_KEY =
+            "bossrefactoraether.valkyrie_queen.data_version";
+    private static final int CURRENT_DATA_VERSION = 1;
     private static final String PHASE_TWO_KEY = "bossrefactoraether.valkyrie_queen.phase_two";
     private static final String TELEPORT_COOLDOWN_KEY = "bossrefactoraether.valkyrie_queen.teleport_cooldown";
     private static final String SKILL_COOLDOWN_KEY = "bossrefactoraether.valkyrie_queen.skill_cooldown";
@@ -55,6 +62,7 @@ public final class ValkyrieQueenCombatState {
     }
 
     public void write(CompoundTag tag, long gameTime) {
+        tag.putInt(DATA_VERSION_KEY, CURRENT_DATA_VERSION);
         tag.putBoolean(PHASE_TWO_KEY, phaseTwo);
         tag.putLong(TELEPORT_COOLDOWN_KEY, Math.max(0L, teleportReadyAt - gameTime));
         tag.putLong(SKILL_COOLDOWN_KEY, Math.max(0L, skillReadyAt - gameTime));
@@ -64,14 +72,31 @@ public final class ValkyrieQueenCombatState {
     }
 
     public void read(CompoundTag tag, long gameTime) {
-        phaseTwo = tag.getBoolean(PHASE_TWO_KEY);
-        teleportReadyAt = gameTime + Math.max(0L, tag.getLong(TELEPORT_COOLDOWN_KEY));
-        skillReadyAt = gameTime + Math.max(0L, tag.getLong(SKILL_COOLDOWN_KEY));
-        spearReadyAt = gameTime + Math.max(0L, tag.getLong(SPEAR_COOLDOWN_KEY));
-        basicIndex = Math.max(0, tag.getInt(BASIC_INDEX_KEY));
-        skillIndex = Math.max(0, tag.getInt(SKILL_INDEX_KEY));
+        phaseTwo = tag.contains(PHASE_TWO_KEY, Tag.TAG_ANY_NUMERIC)
+                && tag.getBoolean(PHASE_TWO_KEY);
+        teleportReadyAt = readReadyAt(tag, TELEPORT_COOLDOWN_KEY, gameTime);
+        skillReadyAt = readReadyAt(tag, SKILL_COOLDOWN_KEY, gameTime);
+        spearReadyAt = readReadyAt(tag, SPEAR_COOLDOWN_KEY, gameTime);
+        basicIndex = readNonNegativeInt(tag, BASIC_INDEX_KEY);
+        skillIndex = readNonNegativeInt(tag, SKILL_INDEX_KEY);
         outOfCombatHealingTicks = 0;
         resetTransient();
+    }
+
+    private static long readReadyAt(
+            CompoundTag tag, String key, long gameTime) {
+        OptionalLong remaining = BossStateNbt.readDuration(tag, key);
+        if (remaining.isEmpty()) {
+            return 0L;
+        }
+        return gameTime > Long.MAX_VALUE - remaining.getAsLong()
+                ? Long.MAX_VALUE
+            : gameTime + remaining.getAsLong();
+    }
+
+    private static int readNonNegativeInt(CompoundTag tag, String key) {
+        return BossStateNbt.readNonNegativeInt(
+            tag, key, MAX_ROTATION_INDEX).orElse(0);
     }
 
     public void resetTransient() {

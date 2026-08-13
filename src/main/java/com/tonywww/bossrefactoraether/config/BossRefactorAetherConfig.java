@@ -1,6 +1,7 @@
 package com.tonywww.bossrefactoraether.config;
 
 import com.tonywww.bossrefactoraether.BossRecovery;
+import com.tonywww.bossrefactoraether.BossStateNbt;
 import com.tonywww.bossrefactoraether.slider.SliderMechanics;
 import com.tonywww.bossrefactoraether.sunspirit.SunSpiritMechanics;
 import com.tonywww.bossrefactoraether.valkyriequeen.ValkyrieQueenMechanics;
@@ -11,7 +12,7 @@ public final class BossRefactorAetherConfig {
         private static final double MAX_ATTACK_DAMAGE_MULTIPLIER = 1_000.0;
         private static final double MAX_SPEED_MULTIPLIER = 10.0;
         private static final double MAX_DISTANCE = 128.0;
-        private static final int MAX_TICKS = 72_000;
+        private static final int MAX_TICKS = BossStateNbt.MAX_DURATION_TICKS;
 
         public static final ForgeConfigSpec COMMON_SPEC;
         public static final BossRecoveryConfig BOSS_RECOVERY;
@@ -250,6 +251,7 @@ public final class BossRefactorAetherConfig {
                 public final ForgeConfigSpec.DoubleValue edgeReturnSpeedMultiplier;
                 public final ForgeConfigSpec.DoubleValue perimeterPatrolSpeedMultiplier;
                 public final ForgeConfigSpec.DoubleValue chaseSpeedMultiplier;
+                public final ForgeConfigSpec.DoubleValue chaseAcceleration;
                 public final ForgeConfigSpec.DoubleValue chainDashSpeedMultiplier;
 
                 private SliderMovementConfig(ForgeConfigSpec.Builder builder) {
@@ -304,6 +306,13 @@ public final class BossRefactorAetherConfig {
                                         SliderMechanics.DEFAULT_CHASE_SPEED_MULTIPLIER,
                                         "Multiplier while continuously chasing the current player.",
                                         "持续追击当前玩家时的速度倍率。");
+                        chaseAcceleration = defineDouble(
+                                        builder,
+                                        "chase_acceleration",
+                                        SliderMechanics.DEFAULT_CHASE_ACCELERATION,
+                                        0.0, 10.0,
+                                        "Base acceleration per tick for owned chase movement.",
+                                        "本模组接管追击时每 tick 的基础加速度。");
                         chainDashSpeedMultiplier = defineSpeedMultiplier(
                                         builder,
                                         "chain_dash_speed_multiplier",
@@ -351,6 +360,8 @@ public final class BossRefactorAetherConfig {
         public static final class SliderRangeConfig {
                 public final ForgeConfigSpec.DoubleValue continuousGlideDistance;
                 public final ForgeConfigSpec.DoubleValue continuousGlideMaxLeadDistance;
+                public final ForgeConfigSpec.DoubleValue standaloneRoomHorizontalRadius;
+                public final ForgeConfigSpec.DoubleValue standaloneRoomVerticalRadius;
                 public final ForgeConfigSpec.DoubleValue perimeterEdgeClearance;
                 public final ForgeConfigSpec.DoubleValue perimeterArrivalTolerance;
                 public final ForgeConfigSpec.DoubleValue verticalAlignmentTolerance;
@@ -366,6 +377,18 @@ public final class BossRefactorAetherConfig {
                                         SliderMechanics.CONTINUOUS_GLIDE_MAX_LEAD_DISTANCE,
                                         "Maximum horizontal player-velocity lead distance.",
                                         "按玩家水平速度预判时允许的最大领先距离。");
+                        standaloneRoomHorizontalRadius = defineDouble(
+                                        builder, "standalone_room_horizontal_radius",
+                                        SliderMechanics.STANDALONE_ROOM_HORIZONTAL_RADIUS,
+                                        1.0, MAX_DISTANCE,
+                                        "Authoritative horizontal combat-room radius, including tracked dungeons.",
+                                        "滑行魔石实际战斗房间的水平半径，包括有地牢追踪器的房间。");
+                        standaloneRoomVerticalRadius = defineDouble(
+                                        builder, "standalone_room_vertical_radius",
+                                        SliderMechanics.STANDALONE_ROOM_VERTICAL_RADIUS,
+                                        1.0, MAX_DISTANCE,
+                                        "Authoritative vertical combat-room radius, including tracked dungeons.",
+                                        "滑行魔石实际战斗房间的垂直半径，包括有地牢追踪器的房间。");
                         perimeterEdgeClearance = defineDistance(builder, "perimeter_edge_clearance",
                                         SliderMechanics.PERIMETER_EDGE_CLEARANCE,
                                         "Extra clearance between the Slider and arena walls.",

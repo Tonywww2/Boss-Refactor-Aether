@@ -2,6 +2,7 @@ package com.tonywww.bossrefactoraether.mixin;
 
 import com.aetherteam.aether.entity.monster.dungeon.boss.Slider;
 import com.aetherteam.aether.entity.monster.dungeon.boss.goal.CrushGoal;
+import com.tonywww.bossrefactoraether.BossStateNbt;
 import com.tonywww.bossrefactoraether.slider.SliderCombatService;
 import com.tonywww.bossrefactoraether.slider.SliderCombatState;
 import com.tonywww.bossrefactoraether.slider.SliderMechanics;
@@ -40,6 +41,11 @@ import java.util.Optional;
 @Mixin(Slider.class)
 public abstract class SliderMixin extends PathfinderMob
     implements SliderStateAccess, AttackTelegraphAccess {
+    @Unique
+    private static final int BOSS_REFACTOR_AETHER$MAX_PERSISTED_GLIDE_POWER = 100;
+    @Unique
+    private static final String BOSS_REFACTOR_AETHER$GLIDE_POWER_KEY =
+            "bossrefactoraether.slider.glide_power";
     @Unique
     private static final EntityDataAccessor<Integer> BOSS_REFACTOR_AETHER$GLIDE_POWER =
             SynchedEntityData.defineId(Slider.class, EntityDataSerializers.INT);
@@ -86,8 +92,6 @@ public abstract class SliderMixin extends PathfinderMob
     @Unique
     private boolean bossRefactorAether$statusTitleInitialized;
     @Unique
-    private boolean bossRefactorAether$originalMovementGoalsRemoved;
-    @Unique
     private boolean bossRefactorAether$previousNoPhysics;
     @Unique
     private boolean bossRefactorAether$wasAwake;
@@ -132,16 +136,22 @@ public abstract class SliderMixin extends PathfinderMob
     private void bossRefactorAether$removeOriginalMovementGoals(CallbackInfo callback) {
         Slider slider = (Slider) (Object) this;
         SliderCombatService.ensureArena(slider);
-        if (!bossRefactorAether$originalMovementGoalsRemoved
-                && SliderMechanics.shouldTakeOverOriginalMovement(
-                    SliderCombatService.hasArena(slider))) {
+        if (SliderMechanics.shouldTakeOverOriginalMovement(
+                SliderCombatService.hasArena(slider))) {
             this.goalSelector.removeAllGoals(goal -> true);
+            this.targetSelector.removeAllGoals(goal -> true);
             this.getNavigation().stop();
-            slider.setMoveDirection(null);
-            slider.setTargetPoint(null);
-            slider.setDeltaMovement(Vec3.ZERO);
-            bossRefactorAether$originalMovementGoalsRemoved = true;
         }
+    }
+
+    @Override
+    public void travel(Vec3 travelVector) {
+        Slider slider = (Slider) (Object) this;
+        if (SliderCombatService.controlsChaseTravel(slider)) {
+            slider.setDeltaMovement(Vec3.ZERO);
+            return;
+        }
+        super.travel(travelVector);
     }
 
     @Inject(method = "defineSynchedData", at = @At("TAIL"))
@@ -193,14 +203,18 @@ public abstract class SliderMixin extends PathfinderMob
     private void bossRefactorAether$saveState(CompoundTag tag, CallbackInfo callback) {
         Slider slider = (Slider) (Object) this;
         bossRefactorAether$getCombatState().write(tag, slider.level().getGameTime());
-        tag.putInt("bossrefactoraether.slider.glide_power", bossRefactorAether$getGlidePower());
+        tag.putInt(BOSS_REFACTOR_AETHER$GLIDE_POWER_KEY,
+            bossRefactorAether$getGlidePower());
     }
 
     @Inject(method = "readAdditionalSaveData", at = @At("TAIL"))
     private void bossRefactorAether$loadState(CompoundTag tag, CallbackInfo callback) {
         Slider slider = (Slider) (Object) this;
         bossRefactorAether$getCombatState().read(tag, slider.level().getGameTime());
-        bossRefactorAether$setGlidePower(tag.getInt("bossrefactoraether.slider.glide_power"));
+        bossRefactorAether$setGlidePower(BossStateNbt.readNonNegativeInt(
+            tag,
+            BOSS_REFACTOR_AETHER$GLIDE_POWER_KEY,
+            BOSS_REFACTOR_AETHER$MAX_PERSISTED_GLIDE_POWER).orElse(0));
         SliderCombatService.onLoaded(slider);
     }
 

@@ -466,6 +466,10 @@ public final class SunSpiritCombatService {
             state.summonReadyAt = gameTime + BossRefactorAetherConfig
                     .SUN_SPIRIT_TIMING.initialSummonDelayTicks.get();
         }
+        if (state.phaseTwo && state.phaseSigilReadyAt == 0L) {
+            state.phaseSigilReadyAt = gameTime + BossRefactorAetherConfig
+                    .SUN_SPIRIT_TIMING.initialPhaseTwoSigilDelayTicks.get();
+        }
     }
 
     private static void processHealthThresholds(SunSpirit sunSpirit,

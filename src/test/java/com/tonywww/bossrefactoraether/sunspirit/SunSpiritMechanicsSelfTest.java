@@ -138,6 +138,35 @@ public final class SunSpiritMechanicsSelfTest {
                 "summon cooldown must retain its remaining duration");
         check(loaded.phaseSigilReadyAt == 2500L,
                 "phase sigil cooldown must retain its remaining duration");
+
+        SunSpiritCombatState missing = new SunSpiritCombatState();
+        missing.read(new CompoundTag(), 2000L);
+        check(!missing.phaseTwo,
+                "a pre-mod Sun Spirit must begin in phase one");
+        check(missing.healthThresholdsSummoned == 0 && missing.attackIndex == 0,
+                "missing Sun Spirit counters must begin at zero");
+        check(missing.summonReadyAt == 0L && missing.phaseSigilReadyAt == 0L,
+                "missing Sun Spirit cooldowns must retain first-tick initialization sentinels");
+
+        CompoundTag partial = new CompoundTag();
+        partial.putBoolean("bossrefactoraether.sun_spirit.phase_two", true);
+        partial.putLong("bossrefactoraether.sun_spirit.summon_cooldown", 60L);
+        partial.putString("bossrefactoraether.sun_spirit.phase_sigil_cooldown", "invalid");
+        partial.putLong("bossrefactoraether.sun_spirit.health_thresholds", Long.MAX_VALUE);
+        partial.putDouble("bossrefactoraether.sun_spirit.attack_index", 3.5);
+        SunSpiritCombatState migrated = new SunSpiritCombatState();
+        migrated.read(partial, 2000L);
+        check(migrated.phaseTwo,
+                "a valid legacy Sun Spirit phase must be retained");
+        check(migrated.summonReadyAt == 2060L,
+                "a valid legacy Sun Spirit cooldown must be retained");
+        check(migrated.phaseSigilReadyAt == 0L,
+                "a missing or mistyped phase sigil cooldown must be reinitialized");
+        check(migrated.healthThresholdsSummoned == 0 && migrated.attackIndex == 0,
+                "oversized or fractional Sun Spirit counters must be discarded");
+
+        check(tag.getInt("bossrefactoraether.sun_spirit.data_version") == 1,
+                "new Sun Spirit state must carry an explicit data version");
     }
 
     private static void checkClose(double actual, double expected, String message) {

@@ -30,11 +30,13 @@ public final class SliderMechanics {
     public static final double DEFAULT_EDGE_RETURN_SPEED_MULTIPLIER = 0.75;
     public static final double DEFAULT_PERIMETER_PATROL_SPEED_MULTIPLIER = 0.5;
     public static final double DEFAULT_CHASE_SPEED_MULTIPLIER = 1.0;
+    public static final double DEFAULT_CHASE_ACCELERATION = 0.035 - 400.0 / 30000.0;
     public static final double DEFAULT_CHAIN_SPEED_MULTIPLIER = 1.6;
     public static final double STANDALONE_ROOM_HORIZONTAL_RADIUS = 11.0;
     public static final double STANDALONE_ROOM_VERTICAL_RADIUS = 7.0;
     public static final double ROOM_INTERIOR_INSET = 1.0;
     public static final double ARENA_RADIUS_REDUCTION = 3.0;
+    public static final double ARENA_VALIDATION_TOLERANCE = 2.0;
     public static final double PERIMETER_EDGE_CLEARANCE = 0.35;
     public static final double PERIMETER_ARRIVAL_TOLERANCE = 0.12;
     public static final double VERTICAL_ALIGNMENT_TOLERANCE = 0.1;
@@ -224,6 +226,16 @@ public final class SliderMechanics {
         return hasArena;
     }
 
+    static boolean shouldOwnChaseTravel(
+            boolean serverSide, boolean skillIdle,
+            SliderBehaviorMode behaviorMode, SliderMovementPhase movementPhase) {
+        return serverSide
+                && skillIdle
+                && behaviorMode == SliderBehaviorMode.CHASE
+                && (movementPhase == SliderMovementPhase.CHASING
+                    || movementPhase == SliderMovementPhase.VERTICAL_ALIGNING);
+    }
+
     public static boolean shouldDiscardExternalMovementOnAwaken(
             boolean wasAwake, boolean awake, boolean hasArena) {
         return !wasAwake && awake && hasArena;
@@ -245,15 +257,67 @@ public final class SliderMechanics {
             * Math.max(0.0, actionMultiplier);
     }
 
-            public static AABB standaloneRoomBounds(Vec3 center) {
-            return new AABB(
-                center.x - STANDALONE_ROOM_HORIZONTAL_RADIUS,
-                center.y - STANDALONE_ROOM_VERTICAL_RADIUS,
-                center.z - STANDALONE_ROOM_HORIZONTAL_RADIUS,
-                center.x + STANDALONE_ROOM_HORIZONTAL_RADIUS,
-                center.y + STANDALONE_ROOM_VERTICAL_RADIUS,
-                center.z + STANDALONE_ROOM_HORIZONTAL_RADIUS);
-            }
+    public static AABB standaloneRoomBounds(Vec3 center) {
+        return standaloneRoomBounds(
+                center,
+                STANDALONE_ROOM_HORIZONTAL_RADIUS,
+                STANDALONE_ROOM_VERTICAL_RADIUS);
+    }
+
+    public static AABB standaloneRoomBounds(
+            Vec3 center, double horizontalRadius, double verticalRadius) {
+        return configuredRoomBounds(center, horizontalRadius, verticalRadius);
+        }
+
+        public static AABB configuredRoomBounds(
+            Vec3 center, double horizontalRadius, double verticalRadius) {
+        double safeHorizontalRadius = Math.max(0.0, horizontalRadius);
+        double safeVerticalRadius = Math.max(0.0, verticalRadius);
+        return new AABB(
+                center.x - safeHorizontalRadius,
+                center.y - safeVerticalRadius,
+                center.z - safeHorizontalRadius,
+                center.x + safeHorizontalRadius,
+                center.y + safeVerticalRadius,
+                center.z + safeHorizontalRadius);
+    }
+
+    public static boolean isFinitePosition(Vec3 position) {
+        return position != null
+                && Double.isFinite(position.x)
+                && Double.isFinite(position.y)
+                && Double.isFinite(position.z);
+    }
+
+    public static boolean isValidArenaRoom(AABB room) {
+        return room != null
+                && Double.isFinite(room.minX)
+                && Double.isFinite(room.minY)
+                && Double.isFinite(room.minZ)
+                && Double.isFinite(room.maxX)
+                && Double.isFinite(room.maxY)
+                && Double.isFinite(room.maxZ)
+                && room.maxX > room.minX
+                && room.maxY > room.minY
+                && room.maxZ > room.minZ;
+    }
+
+    public static boolean isPositionWithinArenaRoom(
+            AABB room, Vec3 position, double tolerance) {
+        if (!isValidArenaRoom(room)
+                || !Double.isFinite(position.x)
+                || !Double.isFinite(position.y)
+                || !Double.isFinite(position.z)) {
+            return false;
+        }
+        double safeTolerance = Math.max(0.0, tolerance);
+        return position.x >= room.minX - safeTolerance
+                && position.x <= room.maxX + safeTolerance
+                && position.y >= room.minY - safeTolerance
+                && position.y <= room.maxY + safeTolerance
+                && position.z >= room.minZ - safeTolerance
+                && position.z <= room.maxZ + safeTolerance;
+    }
 
     public static Direction.Axis chooseAttackAxis(double deltaX, double deltaZ) {
         return Math.abs(deltaX) >= Math.abs(deltaZ)
@@ -470,12 +534,34 @@ public final class SliderMechanics {
                     + Math.max(0.0, velocityIncrease));
     }
 
+    public static double configuredChaseAcceleration(
+            double configuredAcceleration,
+            double movementMultiplier,
+            double chaseSpeedMultiplier) {
+        return Math.max(0.0, configuredAcceleration)
+                * Math.max(0.0, movementMultiplier)
+                * Math.max(0.0, chaseSpeedMultiplier);
+    }
+
     public static Vec3 directionMotion(Direction direction, double distance) {
         double step = Math.max(0.0, distance);
         return new Vec3(
                 direction.getStepX() * step,
                 direction.getStepY() * step,
                 direction.getStepZ() * step);
+    }
+
+    public static Vec3 chasePositionAfterStep(
+            Vec3 current, Direction direction, double distance, AABB bounds) {
+        return clampToBounds(
+                current.add(directionMotion(direction, distance)),
+                bounds);
+    }
+
+    public static double horizontalDistance(Vec3 first, Vec3 second) {
+        double deltaX = first.x - second.x;
+        double deltaZ = first.z - second.z;
+        return Math.sqrt(deltaX * deltaX + deltaZ * deltaZ);
     }
 
     public static Vec3 clampToBounds(Vec3 position, AABB bounds) {
