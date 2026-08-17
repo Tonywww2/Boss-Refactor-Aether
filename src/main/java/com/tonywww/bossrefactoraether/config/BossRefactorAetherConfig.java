@@ -346,8 +346,8 @@ public final class BossRefactorAetherConfig {
                                         builder, "continuous_glide_prediction_ticks",
                                         SliderMechanics.CONTINUOUS_GLIDE_PREDICTION_TICKS,
                                         0, MAX_TICKS,
-                                        "Ticks of player velocity used to lead Continuous Glide aim.",
-                                        "连续滑行瞄准时用于预判玩家速度的 tick 数。");
+                                        "Extra lead ticks after windup and estimated dash travel time.",
+                                        "在前摇与预计冲刺时间之外追加的预判 tick 数。");
                         perimeterCornerPauseTicks = defineInt(
                                         builder, "perimeter_corner_pause_ticks",
                                         SliderMechanics.PERIMETER_CORNER_PAUSE_TICKS, 0, MAX_TICKS,
@@ -360,6 +360,7 @@ public final class BossRefactorAetherConfig {
         public static final class SliderRangeConfig {
                 public final ForgeConfigSpec.DoubleValue continuousGlideDistance;
                 public final ForgeConfigSpec.DoubleValue continuousGlideMaxLeadDistance;
+                public final ForgeConfigSpec.DoubleValue continuousGlideAlignmentTolerance;
                 public final ForgeConfigSpec.DoubleValue standaloneRoomHorizontalRadius;
                 public final ForgeConfigSpec.DoubleValue standaloneRoomVerticalRadius;
                 public final ForgeConfigSpec.DoubleValue perimeterEdgeClearance;
@@ -377,6 +378,12 @@ public final class BossRefactorAetherConfig {
                                         SliderMechanics.CONTINUOUS_GLIDE_MAX_LEAD_DISTANCE,
                                         "Maximum horizontal player-velocity lead distance.",
                                         "按玩家水平速度预判时允许的最大领先距离。");
+                        continuousGlideAlignmentTolerance = defineDouble(
+                                        builder, "continuous_glide_alignment_tolerance",
+                                        SliderMechanics.CONTINUOUS_GLIDE_ALIGNMENT_TOLERANCE,
+                                        0.0, 2.0,
+                                        "Maximum lateral center-line error before locking a dash.",
+                                        "锁定冲刺前，冲刺中心线允许的最大横向误差。");
                         standaloneRoomHorizontalRadius = defineDouble(
                                         builder, "standalone_room_horizontal_radius",
                                         SliderMechanics.STANDALONE_ROOM_HORIZONTAL_RADIUS,

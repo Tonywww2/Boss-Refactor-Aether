@@ -58,6 +58,8 @@ public final class SliderCombatState {
     Direction chaseDirection;
     double chaseVelocity;
     int chasePauseTicks;
+    boolean chaseOverlapEscape;
+    double chaseOverlapEscapeRemaining;
     SliderSkillPhase skillPhase = SliderSkillPhase.IDLE;
     int skillGlidePower;
     boolean skillPhaseTwo;
@@ -306,6 +308,8 @@ public final class SliderCombatState {
         chaseDirection = null;
         chaseVelocity = 0.0;
         chasePauseTicks = 0;
+        chaseOverlapEscape = false;
+        chaseOverlapEscapeRemaining = 0.0;
         patrolCollisionPositionInitialized = false;
         patrolCollisionPreviousPosition = Vec3.ZERO;
         patrolCollisionContacts.clear();

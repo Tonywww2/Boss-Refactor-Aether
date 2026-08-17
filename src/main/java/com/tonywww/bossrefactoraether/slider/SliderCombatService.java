@@ -385,7 +385,8 @@ public final class SliderCombatService {
         LivingEntity target = validTarget(slider);
         DashAim aim = target != null
                 ? resolveSmartDashAim(
-                    slider, target, state.phaseTwo, skillGlidePower)
+                    slider, target, state.phaseTwo, skillGlidePower,
+                    BossRefactorAetherConfig.SLIDER_TIMING.chargeTicks.get())
                 : null;
         if (aim == null) {
             return;
@@ -715,6 +716,8 @@ public final class SliderCombatService {
         state.chaseDirection = null;
         state.chaseVelocity = 0.0;
         state.chasePauseTicks = Math.max(0, pauseTicks);
+        state.chaseOverlapEscape = false;
+        state.chaseOverlapEscapeRemaining = 0.0;
         stopArenaMovement(slider);
     }
 
@@ -740,12 +743,25 @@ public final class SliderCombatService {
         Vec3 destination = SliderMechanics.clampToBounds(
                 target.position(), bounds);
         SliderCombatState state = state(slider);
-        if (state.chaseDirection == null) {
-            if (canPrepareSkillFromCurrentPosition(slider, target)
-                && !needsVerticalAlignment(slider, target)) {
-            startCharge(slider);
+        if (state.chaseOverlapEscape) {
+            tickChaseOverlapEscape(slider, state, bounds);
             return;
+        }
+        if (SliderMechanics.overlaps(
+                slider.getBoundingBox(), target.getBoundingBox())) {
+            startChaseOverlapEscape(slider, state, bounds);
+            tickChaseOverlapEscape(slider, state, bounds);
+            return;
+        }
+        if (canPrepareSkillFromCurrentPosition(slider, target)) {
+            if (needsVerticalAlignment(slider, target)) {
+                startVerticalAlignment(slider, SliderMovementPhase.CHASING);
+            } else {
+                startCharge(slider);
             }
+            return;
+        }
+        if (state.chaseDirection == null) {
             if (slider.position().distanceToSqr(destination)
                 <= SliderMechanics.MOVEMENT_PROGRESS_EPSILON
                 * SliderMechanics.MOVEMENT_PROGRESS_EPSILON) {
@@ -782,12 +798,77 @@ public final class SliderCombatService {
         moveOwnedChase(slider, state.chaseDirection, step, bounds);
     }
 
+        private static void startChaseOverlapEscape(
+            Slider slider, SliderCombatState state, AABB bounds) {
+        state.chaseDirection = SliderMechanics.horizontalEscapeDirection(
+            slider.position(), bounds);
+        state.chaseVelocity = 0.0;
+        state.chasePauseTicks = 0;
+        state.chaseOverlapEscape = true;
+        state.chaseOverlapEscapeRemaining = SliderMechanics.horizontalEscapeDistance(
+            slider.position(), state.chaseDirection, bounds,
+            SliderMechanics.CHASE_OVERLAP_ESCAPE_DISTANCE);
+        if (state.chaseOverlapEscapeRemaining
+            <= SliderMechanics.MOVEMENT_PROGRESS_EPSILON) {
+            state.chaseOverlapEscape = false;
+            state.chaseDirection = null;
+            state.behaviorMode = SliderBehaviorMode.PATROL;
+            beginReturnToEdge(slider);
+        }
+        }
+
+        private static void tickChaseOverlapEscape(
+            Slider slider, SliderCombatState state, AABB bounds) {
+        if (state.chaseDirection == null
+            || state.chaseOverlapEscapeRemaining
+                <= SliderMechanics.MOVEMENT_PROGRESS_EPSILON) {
+            finishChaseOverlapEscape(slider, state);
+            return;
+        }
+        double movementMultiplier = movementMultiplier(slider);
+        double chaseSpeedMultiplier = BossRefactorAetherConfig.SLIDER_MOVEMENT
+            .chaseSpeedMultiplier.get();
+        double maximumVelocity = slider.getMaxVelocity()
+            * movementMultiplier * chaseSpeedMultiplier;
+        double velocityIncrease = SliderMechanics.configuredChaseAcceleration(
+            BossRefactorAetherConfig.SLIDER_MOVEMENT
+                .chaseAcceleration.get(),
+            movementMultiplier,
+            chaseSpeedMultiplier);
+        state.chaseVelocity = SliderMechanics.nextChaseVelocity(
+            state.chaseVelocity, maximumVelocity, velocityIncrease);
+        double step = Math.min(
+            state.chaseOverlapEscapeRemaining, state.chaseVelocity);
+        Vec3 before = slider.position();
+        moveOwnedChase(slider, state.chaseDirection, step, bounds);
+        double moved = SliderMechanics.horizontalDistance(
+            before, slider.position());
+        state.chaseOverlapEscapeRemaining = Math.max(
+            0.0, state.chaseOverlapEscapeRemaining - moved);
+        if (moved <= SliderMechanics.MOVEMENT_PROGRESS_EPSILON
+            || state.chaseOverlapEscapeRemaining
+                <= SliderMechanics.MOVEMENT_PROGRESS_EPSILON) {
+            finishChaseOverlapEscape(slider, state);
+        }
+        }
+
+        private static void finishChaseOverlapEscape(
+            Slider slider, SliderCombatState state) {
+        state.chaseOverlapEscape = false;
+        state.chaseOverlapEscapeRemaining = 0.0;
+        state.chaseDirection = null;
+        state.chaseVelocity = 0.0;
+        stopArenaMovement(slider);
+        }
+
         private static void resetChaseSegment(
             Slider slider, boolean pause) {
         SliderCombatState state = state(slider);
         state.chaseDirection = null;
         state.chaseVelocity = 0.0;
         state.chasePauseTicks = pause ? slider.calculateMoveDelay() : 0;
+        state.chaseOverlapEscape = false;
+        state.chaseOverlapEscapeRemaining = 0.0;
         stopArenaMovement(slider);
         }
 
@@ -1013,7 +1094,8 @@ public final class SliderCombatService {
             Slider slider, LivingEntity target,
             boolean phaseTwo, int skillGlidePower) {
         return resolveSmartDashAim(
-            slider, target, phaseTwo, skillGlidePower) != null;
+            slider, target, phaseTwo, skillGlidePower,
+            BossRefactorAetherConfig.SLIDER_TIMING.chargeTicks.get()) != null;
     }
 
     private static Vec3 clampPatrolMovementToSkillPosition(
@@ -1032,23 +1114,46 @@ public final class SliderCombatService {
                 slider, target, state(slider).phaseTwo, skillGlidePower)) {
             return movement;
         }
-        Vec3 predictedTarget = predictedTargetPosition(target);
-        double laneHalfWidth = dashLaneHalfWidth(slider, target);
+        boolean phaseTwo = state(slider).phaseTwo;
+        int warningTicks = BossRefactorAetherConfig.SLIDER_TIMING.chargeTicks.get();
+        Vec3 predictedX = predictedTargetPosition(
+            slider, target, Direction.Axis.X,
+            phaseTwo, skillGlidePower, warningTicks);
+        Vec3 predictedZ = predictedTargetPosition(
+            slider, target, Direction.Axis.Z,
+            phaseTwo, skillGlidePower, warningTicks);
+        double alignmentTolerance = BossRefactorAetherConfig.SLIDER_RANGE
+            .continuousGlideAlignmentTolerance.get();
         double maximumReach = SliderMechanics.maximumDashReach(
                 BossRefactorAetherConfig.SLIDER_RANGE.continuousGlideDistance.get(),
-                chainSpeed(slider, state(slider).phaseTwo, skillGlidePower),
+            chainSpeed(slider, phaseTwo, skillGlidePower),
                 BossRefactorAetherConfig.SLIDER_TIMING.dashTickLimit.get());
-        double intersection = SliderMechanics.firstAxisDashIntersection(
+        double xIntersection = SliderMechanics.firstAxisDashIntersection(
+            Direction.Axis.X,
                 slider.getX(), slider.getZ(),
                 slider.getX() + movement.x, slider.getZ() + movement.z,
-            predictedTarget.x, predictedTarget.z,
-            maximumReach, laneHalfWidth);
-        if (Double.isNaN(intersection)) {
-            intersection = SliderMechanics.firstAxisDashIntersection(
+            predictedX.x, predictedX.z,
+            maximumReach, alignmentTolerance);
+        double zIntersection = SliderMechanics.firstAxisDashIntersection(
+            Direction.Axis.Z,
                 slider.getX(), slider.getZ(),
                 slider.getX() + movement.x, slider.getZ() + movement.z,
-                target.getX(), target.getZ(), maximumReach, laneHalfWidth);
+            predictedZ.x, predictedZ.z,
+            maximumReach, alignmentTolerance);
+        AABB perimeter = arenaPerimeter(slider);
+        if (perimeter == null) {
+            return movement;
         }
+        xIntersection = validatedAlignmentIntersection(
+            Direction.Axis.X, xIntersection,
+            slider.position(), movement, predictedX,
+            perimeter, maximumReach, alignmentTolerance);
+        zIntersection = validatedAlignmentIntersection(
+            Direction.Axis.Z, zIntersection,
+            slider.position(), movement, predictedZ,
+            perimeter, maximumReach, alignmentTolerance);
+        double intersection = minimumFiniteIntersection(
+            xIntersection, zIntersection);
         return Double.isNaN(intersection) ? movement : movement.scale(intersection);
     }
 
@@ -1309,7 +1414,9 @@ public final class SliderCombatService {
         LivingEntity target = validTarget(slider);
         DashAim aim = target != null
                 ? resolveSmartDashAim(
-                    slider, target, state.skillPhaseTwo, state.skillGlidePower)
+                    slider, target, state.skillPhaseTwo, state.skillGlidePower,
+                    BossRefactorAetherConfig.SLIDER_TIMING
+                        .dashIntervalTicks.get())
                 : null;
         if (aim == null) {
             finishSkill(slider);
@@ -1543,7 +1650,7 @@ public final class SliderCombatService {
                 AttackTelegraphShape.CORRIDOR,
                 SliderMechanics.axisMotion(aim.axis(), aim.sign()),
                 aim.reach(),
-                slider.getBbWidth() * 0.65,
+                aim.laneHalfWidth(),
                 0.0,
                 progress);
     }
@@ -1551,49 +1658,132 @@ public final class SliderCombatService {
     @Nullable
     private static DashAim resolveSmartDashAim(
             Slider slider, LivingEntity target,
-            boolean phaseTwo, int skillGlidePower) {
-        DashAim predicted = resolveDashAimAt(
-                slider, target, predictedTargetPosition(target),
-                phaseTwo, skillGlidePower);
-        return predicted != null
-                ? predicted
-                : resolveDashAimAt(
-                    slider, target, target.position(),
-                    phaseTwo, skillGlidePower);
+            boolean phaseTwo, int skillGlidePower,
+            int warningTicks) {
+        double laneHalfWidth = dashLaneHalfWidth(slider, target);
+        DashAim xAim = resolveDashAimForAxis(
+            slider,
+            predictedTargetPosition(
+                slider, target, Direction.Axis.X,
+                phaseTwo, skillGlidePower, warningTicks),
+            Direction.Axis.X, phaseTwo, skillGlidePower, laneHalfWidth);
+        DashAim zAim = resolveDashAimForAxis(
+            slider,
+            predictedTargetPosition(
+                slider, target, Direction.Axis.Z,
+                phaseTwo, skillGlidePower, warningTicks),
+            Direction.Axis.Z, phaseTwo, skillGlidePower, laneHalfWidth);
+        if (xAim != null && zAim != null) {
+            return xAim.axialDistance() >= zAim.axialDistance() ? xAim : zAim;
+        }
+        if (xAim != null) {
+            return xAim;
+        }
+        if (zAim != null) {
+            return zAim;
+        }
+        return resolveOverlapDashAim(
+                slider, target, phaseTwo,
+                skillGlidePower, laneHalfWidth);
     }
 
     @Nullable
-    private static DashAim resolveDashAimAt(
-            Slider slider, LivingEntity target, Vec3 aimPosition,
-            boolean phaseTwo, int skillGlidePower) {
+    private static DashAim resolveOverlapDashAim(
+            Slider slider, LivingEntity target,
+            boolean phaseTwo, int skillGlidePower,
+            double laneHalfWidth) {
+        if (!SliderMechanics.overlaps(
+                slider.getBoundingBox(), target.getBoundingBox())) {
+            return null;
+        }
+        AABB perimeter = arenaPerimeter(slider);
+        if (perimeter == null) {
+            return null;
+        }
+        Direction direction = SliderMechanics.horizontalEscapeDirection(
+                slider.position(), perimeter);
+        Direction.Axis axis = direction.getAxis();
+        double sign = axis == Direction.Axis.X
+                ? direction.getStepX() : direction.getStepZ();
+        double reach = constrainedDashReach(
+                slider, axis, sign,
+                maximumDashReach(slider, phaseTwo, skillGlidePower));
+        if (reach <= SliderMechanics.MOVEMENT_PROGRESS_EPSILON) {
+            return null;
+        }
+        return new DashAim(axis, sign, reach, 0.0, laneHalfWidth);
+    }
+
+    @Nullable
+        private static DashAim resolveDashAimForAxis(
+            Slider slider, Vec3 aimPosition, Direction.Axis axis,
+            boolean phaseTwo, int skillGlidePower,
+            double laneHalfWidth) {
         double deltaX = aimPosition.x - slider.getX();
         double deltaZ = aimPosition.z - slider.getZ();
         double maximumReach = maximumDashReach(
                 slider, phaseTwo, skillGlidePower);
-        double xReach = constrainedDashReach(
-                slider, Direction.Axis.X, deltaX, maximumReach);
-        double zReach = constrainedDashReach(
-                slider, Direction.Axis.Z, deltaZ, maximumReach);
-        double laneHalfWidth = dashLaneHalfWidth(slider, target);
-        Direction.Axis axis = SliderMechanics.chooseReachableAttackAxis(
-                deltaX, deltaZ, xReach, zReach, laneHalfWidth);
-        if (!SliderMechanics.isAxisDashReachable(
-                axis, deltaX, deltaZ, xReach, zReach, laneHalfWidth)) {
+        double signedOffset = axis == Direction.Axis.X ? deltaX : deltaZ;
+        double axialDistance = Math.abs(signedOffset);
+        double reach = constrainedDashReach(
+            slider, axis, signedOffset, maximumReach);
+        if (axialDistance <= SliderMechanics.MOVEMENT_PROGRESS_EPSILON
+            || axialDistance > reach
+            || !SliderMechanics.isDashCenterlineAligned(
+                axis, deltaX, deltaZ,
+                BossRefactorAetherConfig.SLIDER_RANGE
+                .continuousGlideAlignmentTolerance.get())) {
             return null;
         }
-        double signedOffset = axis == Direction.Axis.X ? deltaX : deltaZ;
-        double sign = Math.abs(signedOffset) < 1.0E-6
-                ? 1.0 : Math.signum(signedOffset);
         return new DashAim(
-                axis, sign, axis == Direction.Axis.X ? xReach : zReach);
+            axis, Math.signum(signedOffset), reach,
+            axialDistance, laneHalfWidth);
     }
 
-    private static Vec3 predictedTargetPosition(LivingEntity target) {
-        return SliderMechanics.predictHorizontalTarget(
+        private static Vec3 predictedTargetPosition(
+            Slider slider, LivingEntity target, Direction.Axis axis,
+            boolean phaseTwo, int skillGlidePower, int warningTicks) {
+        double speed = chainSpeed(slider, phaseTwo, skillGlidePower);
+            return SliderMechanics.predictHorizontalIntercept(
                 target.position(), target.getDeltaMovement(),
+                warningTicks,
                 BossRefactorAetherConfig.SLIDER_TIMING.predictionTicks.get(),
+                axis,
+                axis == Direction.Axis.X ? slider.getX() : slider.getZ(),
+                speed,
                 BossRefactorAetherConfig.SLIDER_RANGE
                     .continuousGlideMaxLeadDistance.get());
+        }
+
+        private static double minimumFiniteIntersection(
+            double first, double second) {
+        if (Double.isNaN(first)) {
+            return second;
+        }
+        if (Double.isNaN(second)) {
+            return first;
+        }
+        return Math.min(first, second);
+    }
+
+    private static double validatedAlignmentIntersection(
+            Direction.Axis axis, double intersection,
+            Vec3 start, Vec3 movement, Vec3 target,
+            AABB perimeter, double maximumReach,
+            double alignmentTolerance) {
+        if (!SliderMechanics.isUsableAlignmentIntersection(intersection)) {
+            return Double.NaN;
+        }
+        Vec3 candidate = start.add(movement.scale(intersection));
+        return SliderMechanics.canReachAxisTargetFromCandidate(
+                axis,
+                candidate.x, candidate.z,
+                target.x, target.z,
+                perimeter.minX, perimeter.maxX,
+                perimeter.minZ, perimeter.maxZ,
+                maximumReach, alignmentTolerance)
+                ? intersection
+                : Double.NaN;
     }
 
     private static double dashLaneHalfWidth(
@@ -1610,7 +1800,8 @@ public final class SliderCombatService {
     }
 
     private record DashAim(
-            Direction.Axis axis, double sign, double reach) {
+            Direction.Axis axis, double sign, double reach,
+            double axialDistance, double laneHalfWidth) {
     }
 
 }

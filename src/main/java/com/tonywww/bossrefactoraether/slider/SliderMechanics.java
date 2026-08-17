@@ -44,6 +44,8 @@ public final class SliderMechanics {
     public static final double PATROL_HIT_INFLATION = 0.1;
     public static final double DASH_HIT_INFLATION = 0.25;
     public static final double CONTINUOUS_GLIDE_MAX_LEAD_DISTANCE = 4.0;
+    public static final double CONTINUOUS_GLIDE_ALIGNMENT_TOLERANCE = 0.1;
+    public static final double CHASE_OVERLAP_ESCAPE_DISTANCE = 2.0;
     public static final double DEFAULT_ATTACK_DAMAGE = 6.0;
     public static final double DEFAULT_NORMAL_COLLISION_BASE_DAMAGE = 2.0;
     public static final double DEFAULT_NORMAL_COLLISION_ATTACK_DAMAGE_MULTIPLIER = 1.0;
@@ -364,14 +366,114 @@ public final class SliderMechanics {
     public static Vec3 predictHorizontalTarget(
             Vec3 position, Vec3 movement,
             int predictionTicks, double maximumLeadDistance) {
+        return predictHorizontalTarget(
+            position, movement, (double) predictionTicks, maximumLeadDistance);
+        }
+
+        public static Vec3 predictHorizontalTarget(
+            Vec3 position, Vec3 movement,
+            double predictionTicks, double maximumLeadDistance) {
         Vec3 lead = new Vec3(movement.x, 0.0, movement.z)
-                .scale(Math.max(0, predictionTicks));
+            .scale(Math.max(0.0, predictionTicks));
         double maximumLead = Math.max(0.0, maximumLeadDistance);
         if (lead.lengthSqr() > maximumLead * maximumLead
                 && lead.lengthSqr() > 1.0E-12) {
             lead = lead.normalize().scale(maximumLead);
         }
         return position.add(lead);
+    }
+
+    public static Vec3 predictHorizontalIntercept(
+            Vec3 targetPosition, Vec3 targetMovement,
+            int warningTicks, int extraPredictionTicks,
+            Direction.Axis axis, double sliderAxisPosition,
+            double dashSpeed,
+            double maximumLeadDistance) {
+        double baseTicks = Math.max(0, warningTicks)
+                + Math.max(0, extraPredictionTicks);
+        double targetAxisPosition = axis == Direction.Axis.X
+                ? targetPosition.x : targetPosition.z;
+        double targetAxisVelocity = axis == Direction.Axis.X
+                ? targetMovement.x : targetMovement.z;
+        double travelTicks = interceptTravelTicks(
+                targetAxisPosition - sliderAxisPosition,
+                targetAxisVelocity,
+                baseTicks,
+                dashSpeed);
+        return predictHorizontalTarget(
+                targetPosition,
+                targetMovement,
+                baseTicks + travelTicks,
+                maximumLeadDistance);
+    }
+
+    public static double interceptTravelTicks(
+            double initialOffset, double targetAxisVelocity,
+            double warningTicks, double dashSpeed) {
+        double speed = Math.max(0.0, dashSpeed);
+        if (speed <= MOVEMENT_PROGRESS_EPSILON) {
+            return 0.0;
+        }
+        double offsetAtDashStart = initialOffset
+                + targetAxisVelocity * Math.max(0.0, warningTicks);
+        double best = Double.POSITIVE_INFINITY;
+        for (double sign : new double[] {-1.0, 1.0}) {
+            double denominator = speed - sign * targetAxisVelocity;
+            if (denominator <= MOVEMENT_PROGRESS_EPSILON) {
+                continue;
+            }
+            double candidate = sign * offsetAtDashStart / denominator;
+            if (candidate < 0.0) {
+                continue;
+            }
+            double interceptedOffset = offsetAtDashStart
+                    + targetAxisVelocity * candidate;
+            if (sign * interceptedOffset >= -MOVEMENT_PROGRESS_EPSILON) {
+                best = Math.min(best, candidate);
+            }
+        }
+        if (Double.isFinite(best)) {
+            return best;
+        }
+        return Math.abs(offsetAtDashStart) / speed;
+    }
+
+    public static boolean isDashCenterlineAligned(
+            Direction.Axis axis, double deltaX, double deltaZ,
+            double alignmentTolerance) {
+        double lateralOffset = axis == Direction.Axis.X
+                ? Math.abs(deltaZ)
+                : Math.abs(deltaX);
+        return lateralOffset <= Math.max(0.0, alignmentTolerance);
+    }
+
+    public static boolean isUsableAlignmentIntersection(double intersection) {
+        return Double.isFinite(intersection)
+                && intersection > MOVEMENT_PROGRESS_EPSILON
+                && intersection <= 1.0;
+    }
+
+    public static boolean canReachAxisTargetFromCandidate(
+            Direction.Axis axis,
+            double candidateX, double candidateZ,
+            double targetX, double targetZ,
+            double minimumX, double maximumX,
+            double minimumZ, double maximumZ,
+            double maximumReach, double alignmentTolerance) {
+        double deltaX = targetX - candidateX;
+        double deltaZ = targetZ - candidateZ;
+        if (!isDashCenterlineAligned(
+                axis, deltaX, deltaZ, alignmentTolerance)) {
+            return false;
+        }
+        double signedOffset = axis == Direction.Axis.X ? deltaX : deltaZ;
+        double availableReach = axis == Direction.Axis.X
+                ? boundedAxisDashDistance(
+                    candidateX, signedOffset, minimumX, maximumX, maximumReach)
+                : boundedAxisDashDistance(
+                    candidateZ, signedOffset, minimumZ, maximumZ, maximumReach);
+        return Math.abs(signedOffset) > MOVEMENT_PROGRESS_EPSILON
+                && Math.abs(signedOffset) <= availableReach;
     }
 
     public static Vec3 axisMotion(Direction.Axis axis, double signedDistance) {
@@ -558,6 +660,46 @@ public final class SliderMechanics {
                 bounds);
     }
 
+    public static boolean overlaps(AABB first, AABB second) {
+        return first.intersects(second);
+    }
+
+    public static Direction horizontalEscapeDirection(Vec3 position, AABB bounds) {
+        Direction bestDirection = Direction.EAST;
+        double bestDistance = horizontalDistanceToBoundary(
+                position, bestDirection, bounds);
+        for (Direction candidate : new Direction[] {
+                Direction.WEST, Direction.SOUTH, Direction.NORTH}) {
+            double candidateDistance = horizontalDistanceToBoundary(
+                    position, candidate, bounds);
+            if (candidateDistance > bestDistance) {
+                bestDirection = candidate;
+                bestDistance = candidateDistance;
+            }
+        }
+        return bestDirection;
+    }
+
+    public static double horizontalEscapeDistance(
+            Vec3 position, Direction direction,
+            AABB bounds, double requestedDistance) {
+        return Math.min(
+                Math.max(0.0, requestedDistance),
+                horizontalDistanceToBoundary(position, direction, bounds));
+    }
+
+    private static double horizontalDistanceToBoundary(
+            Vec3 position, Direction direction, AABB bounds) {
+        return switch (direction) {
+            case EAST -> Math.max(0.0, bounds.maxX - position.x);
+            case WEST -> Math.max(0.0, position.x - bounds.minX);
+            case SOUTH -> Math.max(0.0, bounds.maxZ - position.z);
+            case NORTH -> Math.max(0.0, position.z - bounds.minZ);
+            default -> throw new IllegalArgumentException(
+                    "Escape direction must be horizontal");
+        };
+    }
+
     public static double horizontalDistance(Vec3 first, Vec3 second) {
         double deltaX = first.x - second.x;
         double deltaZ = first.z - second.z;
@@ -655,6 +797,25 @@ public final class SliderMechanics {
             return xDashIntersection;
         }
         return Math.min(xDashIntersection, zDashIntersection);
+    }
+
+    public static double firstAxisDashIntersection(
+            Direction.Axis axis,
+            double startX, double startZ,
+            double endX, double endZ,
+            double targetX, double targetZ,
+            double maximumDistance, double laneHalfWidth) {
+        double distance = Math.max(0.0, maximumDistance);
+        double width = Math.max(0.0, laneHalfWidth);
+        return axis == Direction.Axis.X
+                ? firstSegmentRectangleIntersection(
+                    startX, startZ, endX, endZ,
+                    targetX - distance, targetX + distance,
+                    targetZ - width, targetZ + width)
+                : firstSegmentRectangleIntersection(
+                    startX, startZ, endX, endZ,
+                    targetX - width, targetX + width,
+                    targetZ - distance, targetZ + distance);
     }
 
     private static double firstSegmentRectangleIntersection(

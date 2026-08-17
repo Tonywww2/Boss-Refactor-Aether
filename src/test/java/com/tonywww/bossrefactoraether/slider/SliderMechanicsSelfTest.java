@@ -233,6 +233,10 @@ public final class SliderMechanicsSelfTest {
                         .continuousGlideMaxLeadDistance.getDefault(),
                 SliderMechanics.CONTINUOUS_GLIDE_MAX_LEAD_DISTANCE,
                 "smart dash maximum lead distance must use the configured default");
+        checkClose(BossRefactorAetherConfig.SLIDER_RANGE
+                        .continuousGlideAlignmentTolerance.getDefault(),
+                SliderMechanics.CONTINUOUS_GLIDE_ALIGNMENT_TOLERANCE,
+                "smart dash alignment must use the configured default");
         check(SliderBehaviorMode.PATROL.next() == SliderBehaviorMode.CHASE,
                 "Continuous Glide must switch patrol mode to chase mode");
         check(SliderBehaviorMode.CHASE.next() == SliderBehaviorMode.PATROL,
@@ -300,6 +304,30 @@ public final class SliderMechanicsSelfTest {
                         new Vec3(4.9, 0.0, 0.0), Direction.EAST, 0.5, chaseBounds)
                         .equals(new Vec3(5.0, 0.0, 0.0)),
                 "owned chase movement must remain inside authoritative bounds");
+        check(SliderMechanics.overlaps(
+                        new AABB(-1.0, 0.0, -1.0, 1.0, 2.0, 1.0),
+                        new AABB(0.5, 0.0, -0.5, 1.5, 2.0, 0.5)),
+                "overlapping combat boxes must trigger an escape segment");
+        check(!SliderMechanics.overlaps(
+                        new AABB(-1.0, 0.0, -1.0, 1.0, 2.0, 1.0),
+                        new AABB(1.1, 0.0, -0.5, 2.1, 2.0, 0.5)),
+                "separated combat boxes must not trigger overlap escape");
+        check(SliderMechanics.horizontalEscapeDirection(
+                        new Vec3(4.0, 0.0, 0.0), chaseBounds) == Direction.WEST,
+                "an east-side overlap must escape toward the larger west space");
+        check(SliderMechanics.horizontalEscapeDirection(
+                        new Vec3(0.0, 0.0, -4.0), chaseBounds) == Direction.SOUTH,
+                "a north-side overlap must escape toward the larger south space");
+        checkClose(SliderMechanics.horizontalEscapeDistance(
+                        Vec3.ZERO, Direction.EAST, chaseBounds,
+                        SliderMechanics.CHASE_OVERLAP_ESCAPE_DISTANCE),
+                2.0,
+                "ordinary chase overlap must use its fixed two-block escape");
+        checkClose(SliderMechanics.horizontalEscapeDistance(
+                        new Vec3(4.5, 0.0, 0.0), Direction.EAST,
+                        chaseBounds, 2.0),
+                0.5,
+                "overlap escape must clamp to the authoritative boundary");
         checkClose(SliderMechanics.horizontalDistance(
                         Vec3.ZERO, new Vec3(3.0, 12.0, 4.0)),
                 5.0,
@@ -518,6 +546,57 @@ public final class SliderMechanicsSelfTest {
                 "smart dash prediction must not alter target height");
         checkClose(predicted.z, 1.2111456180001683,
                 "smart dash lead must clamp to its maximum distance");
+        Vec3 stationaryIntercept = SliderMechanics.predictHorizontalIntercept(
+                new Vec3(5.0, 2.0, 3.0), Vec3.ZERO,
+                30, 8, Direction.Axis.X, -1.0, 0.5, 4.0);
+        check(stationaryIntercept.equals(new Vec3(5.0, 2.0, 3.0)),
+                "a stationary player's intercept must remain at their current center");
+        Vec3 movingIntercept = SliderMechanics.predictHorizontalIntercept(
+                Vec3.ZERO, new Vec3(0.1, 0.0, 0.0),
+                10, 2, Direction.Axis.X, -5.0, 0.5, 4.0);
+        checkClose(movingIntercept.x, 2.75,
+                "dynamic intercept must include warning and estimated travel time");
+        checkClose(SliderMechanics.interceptTravelTicks(
+                        5.0, -0.3, 0.0, 0.2),
+                10.0,
+                "closed-form intercept must remain stable for an approaching target");
+        checkClose(SliderMechanics.interceptTravelTicks(
+                        5.0, 0.1, 10.0, 0.5),
+                15.0,
+                "closed-form intercept must include target movement during warning");
+        check(SliderMechanics.isDashCenterlineAligned(
+                        Direction.Axis.X, 6.0, 0.099, 0.1),
+                "an X dash must accept a target inside center-line tolerance");
+        check(!SliderMechanics.isDashCenterlineAligned(
+                        Direction.Axis.X, 6.0, 0.101, 0.1),
+                "an X dash must reject a target outside center-line tolerance");
+        check(Double.isNaN(SliderMechanics.firstAxisDashIntersection(
+                        Direction.Axis.X,
+                        0.0, 0.0, 10.0, 0.0,
+                        5.0, 4.0, 6.0, 0.1)),
+                "an X dash alignment point must reject a parallel patrol edge");
+        checkClose(SliderMechanics.firstAxisDashIntersection(
+                        Direction.Axis.Z,
+                        0.0, 0.0, 10.0, 0.0,
+                        5.0, 4.0, 6.0, 0.1),
+                0.49,
+                "patrol must stop where a Z dash center line aligns with the target");
+        check(!SliderMechanics.isUsableAlignmentIntersection(0.0),
+                "an entry-zero alignment must not stop patrol in place");
+        check(SliderMechanics.isUsableAlignmentIntersection(0.49),
+                "a positive alignment point on this movement step must be usable");
+        check(SliderMechanics.canReachAxisTargetFromCandidate(
+                        Direction.Axis.X,
+                        0.0, 0.0, 5.0, 0.05,
+                        -10.0, 10.0, -10.0, 10.0,
+                        6.0, 0.1),
+                "an aligned candidate with enough eastward room must be reachable");
+        check(!SliderMechanics.canReachAxisTargetFromCandidate(
+                        Direction.Axis.X,
+                        9.0, 0.0, 12.0, 0.05,
+                        -10.0, 10.0, -10.0, 10.0,
+                        6.0, 0.1),
+                "a candidate must reject a target beyond its directional room boundary");
         check(SliderMechanics.isAxisDashReachable(
                         Direction.Axis.X, 6.0, 1.0, 8.0, 8.0, 1.5),
                 "an X dash must accept a predicted target entering its lane");
@@ -831,7 +910,9 @@ public final class SliderMechanicsSelfTest {
                         && state.chaseProgressDistance == 0.0
                         && state.chaseDirection == null
                         && state.chaseVelocity == 0.0
-                        && state.chasePauseTicks == 0,
+                        && state.chasePauseTicks == 0
+                        && !state.chaseOverlapEscape
+                        && state.chaseOverlapEscapeRemaining == 0.0,
                 "a new activation must clear chase progress tracking");
         check(state.movementStallTicks == 0
                         && state.monitoredMovementPhase == SliderMovementPhase.IDLE,
