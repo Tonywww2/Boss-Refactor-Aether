@@ -120,12 +120,6 @@ public abstract class SunSpiritMixin extends PathfinderMob
         callback.setReturnValue(hurt);
     }
 
-    @Inject(method = "isInvulnerableTo", at = @At("HEAD"), cancellable = true)
-    private void bossRefactorAether$removeSpecialInvulnerability(
-            DamageSource source, CallbackInfoReturnable<Boolean> callback) {
-        callback.setReturnValue(super.isInvulnerableTo(source));
-    }
-
     @Inject(method = "reset", at = @At("TAIL"), remap = false)
     private void bossRefactorAether$resetCombat(CallbackInfo callback) {
         SunSpiritCombatService.reset((SunSpirit) (Object) this);

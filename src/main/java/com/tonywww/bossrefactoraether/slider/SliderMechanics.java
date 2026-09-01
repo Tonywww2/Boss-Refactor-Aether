@@ -495,6 +495,16 @@ public final class SliderMechanics {
                 && targetMaxY + padding >= attackerMinY;
     }
 
+    public static SliderBehaviorMode behaviorModeForTargetHeight(
+            SliderBehaviorMode currentMode, boolean hasTarget,
+            boolean hasVerticalAttackOverlap) {
+        SliderBehaviorMode availableMode = currentMode
+                .forTargetAvailability(hasTarget);
+        return hasTarget && !hasVerticalAttackOverlap
+                ? SliderBehaviorMode.CHASE
+                : availableMode;
+    }
+
     public static double verticalAttackAlignmentStep(
             double attackerMinY, double attackerMaxY,
             double targetMinY, double targetMaxY,

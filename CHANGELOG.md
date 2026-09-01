@@ -2,6 +2,19 @@
 
 All notable changes to Boss Refactor Aether are documented in this file.
 
+## [1.4.1] - 2026-09-01
+
+### Fixed
+
+- Restored the Sun Spirit's original pre-combat invulnerability so it remains immune until its dialogue finishes and the boss fight begins.
+- Slider now switches from patrol to chase when its target is outside its vertical attack range, allowing it to align with players at different elevations.
+- Continuous Glide can now be prepared and released after vertical alignment at non-default arena elevations.
+
+### Tests
+
+- Added regression coverage for height-forced Slider chase, missing-target patrol recovery, and attack-height checks above the arena's default elevation.
+- Verified all mechanics tests and the full build, then launched the client directly into the existing `ggg` world.
+
 ## [1.4.0] - 2026-08-17
 
 ### Added

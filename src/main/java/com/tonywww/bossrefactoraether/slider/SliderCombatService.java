@@ -603,11 +603,17 @@ public final class SliderCombatService {
             return;
         }
 
-        SliderBehaviorMode availableMode = state.behaviorMode
-                .forTargetAvailability(target != null);
+        SliderBehaviorMode availableMode = SliderMechanics.behaviorModeForTargetHeight(
+                state.behaviorMode,
+                target != null,
+                target == null || !needsVerticalAlignment(slider, target));
         if (availableMode != state.behaviorMode) {
             state.behaviorMode = availableMode;
-            beginReturnToEdge(slider);
+            if (availableMode == SliderBehaviorMode.CHASE) {
+                beginChase(slider);
+            } else {
+                beginReturnToEdge(slider);
+            }
             return;
         }
 

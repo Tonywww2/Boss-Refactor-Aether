@@ -250,6 +250,18 @@ public final class SliderMechanicsSelfTest {
         check(SliderBehaviorMode.PATROL.forTargetAvailability(false)
                         == SliderBehaviorMode.PATROL,
                 "patrol without a target must continue instead of stopping");
+        check(SliderMechanics.behaviorModeForTargetHeight(
+                        SliderBehaviorMode.PATROL, true, false)
+                        == SliderBehaviorMode.CHASE,
+                "a vertically separated target must force chase mode");
+        check(SliderMechanics.behaviorModeForTargetHeight(
+                        SliderBehaviorMode.PATROL, true, true)
+                        == SliderBehaviorMode.PATROL,
+                "an attack-height target must preserve patrol mode");
+        check(SliderMechanics.behaviorModeForTargetHeight(
+                        SliderBehaviorMode.CHASE, false, false)
+                        == SliderBehaviorMode.PATROL,
+                "missing targets must still return chase to patrol mode");
         check(SliderMechanics.shouldOwnChaseTravel(
                         true, true,
                         SliderBehaviorMode.CHASE, SliderMovementPhase.CHASING),
@@ -636,6 +648,9 @@ public final class SliderMechanicsSelfTest {
         check(SliderMechanics.hasVerticalAttackOverlap(
                         0.0, 2.0, 0.0, 1.8, 0.1),
                 "same-floor entities must already be in attack height despite different centers");
+        check(SliderMechanics.hasVerticalAttackOverlap(
+                        12.0, 14.0, 12.0, 13.8, 0.1),
+                "attack-height checks must work above the arena's default elevation");
         checkClose(SliderMechanics.verticalAttackAlignmentStep(
                         0.0, 2.0, 4.0, 6.0, 0.1, 0.5), 0.5,
                 "vertical alignment must move upward toward attack overlap");
