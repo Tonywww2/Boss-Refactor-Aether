@@ -850,6 +850,14 @@ public final class SliderMechanicsSelfTest {
                         .anyMatch(method -> method.getName().equals(
                                 "bossRefactorAether$beginBlockCollisionBypass")),
                 "Slider movement must bypass block collision clipping");
+        check(Arrays.stream(SliderMixin.class.getDeclaredFields())
+                        .anyMatch(field -> field.getName().equals(
+                                "bossRefactorAether$blockCollisionBypassOwned")),
+                "Slider chase must retain block collision bypass between ticks");
+        check(Arrays.stream(SliderMixin.class.getDeclaredMethods())
+                        .anyMatch(method -> method.getName().equals(
+                                "bossRefactorAether$restoreBlockCollisionBypass")),
+                "Slider must restore its prior collision state after chase");
         byte[] serviceClass;
         try (var stream = SliderMechanicsSelfTest.class.getClassLoader()
                 .getResourceAsStream(

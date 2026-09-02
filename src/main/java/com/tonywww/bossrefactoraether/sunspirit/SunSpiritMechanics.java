@@ -38,9 +38,8 @@ public final class SunSpiritMechanics {
         return attacks[Math.floorMod(index, attacks.length)];
     }
 
-    public static boolean shouldStartFightFromPlayerAttack(
-            boolean damageApplied, boolean alive, boolean bossFight) {
-        return damageApplied && alive && !bossFight;
+    public static boolean shouldUseBaseInvulnerability(boolean bossFight) {
+        return bossFight;
     }
 
     public static double phaseDamageMultiplier(boolean phaseTwo,

@@ -94,6 +94,8 @@ public abstract class SliderMixin extends PathfinderMob
     @Unique
     private boolean bossRefactorAether$previousNoPhysics;
     @Unique
+    private boolean bossRefactorAether$blockCollisionBypassOwned;
+    @Unique
     private boolean bossRefactorAether$wasAwake;
 
     protected SliderMixin(EntityType<? extends PathfinderMob> entityType, Level level) {
@@ -107,7 +109,9 @@ public abstract class SliderMixin extends PathfinderMob
 
     @Inject(method = "tick", at = @At("HEAD"))
     private void bossRefactorAether$beginBlockCollisionBypass(CallbackInfo callback) {
-        bossRefactorAether$previousNoPhysics = this.noPhysics;
+        if (!bossRefactorAether$blockCollisionBypassOwned) {
+            bossRefactorAether$previousNoPhysics = this.noPhysics;
+        }
         Slider slider = (Slider) (Object) this;
         SliderCombatService.ensureArena(slider);
         boolean awake = slider.isAwake() && !slider.isDeadOrDying();
@@ -122,6 +126,7 @@ public abstract class SliderMixin extends PathfinderMob
         }
         bossRefactorAether$wasAwake = awake;
         if (!awake || !controlsMovement) {
+            bossRefactorAether$restoreBlockCollisionBypass();
             return;
         }
         this.noPhysics = true;
@@ -185,8 +190,21 @@ public abstract class SliderMixin extends PathfinderMob
                 bossRefactorAether$refreshBossTitle();
             }
         } finally {
+            if (SliderCombatService.controlsChaseTravel(slider)) {
+                bossRefactorAether$blockCollisionBypassOwned = true;
+                this.noPhysics = true;
+            } else {
+                bossRefactorAether$restoreBlockCollisionBypass();
+            }
+        }
+    }
+
+    @Unique
+    private void bossRefactorAether$restoreBlockCollisionBypass() {
+        if (bossRefactorAether$blockCollisionBypassOwned || this.noPhysics) {
             this.noPhysics = bossRefactorAether$previousNoPhysics;
         }
+        bossRefactorAether$blockCollisionBypassOwned = false;
     }
 
     @Redirect(

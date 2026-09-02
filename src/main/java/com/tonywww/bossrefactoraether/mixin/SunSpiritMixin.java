@@ -3,6 +3,7 @@ package com.tonywww.bossrefactoraether.mixin;
 import com.aetherteam.aether.entity.monster.dungeon.boss.SunSpirit;
 import com.tonywww.bossrefactoraether.sunspirit.SunSpiritCombatService;
 import com.tonywww.bossrefactoraether.sunspirit.SunSpiritCombatState;
+import com.tonywww.bossrefactoraether.sunspirit.SunSpiritMechanics;
 import com.tonywww.bossrefactoraether.sunspirit.SunSpiritStateAccess;
 import com.tonywww.bossrefactoraether.telegraph.AttackTelegraph;
 import com.tonywww.bossrefactoraether.telegraph.AttackTelegraphAccess;
@@ -118,6 +119,16 @@ public abstract class SunSpiritMixin extends PathfinderMob
         boolean hurt = super.hurt(source, adjusted);
         SunSpiritCombatService.onDamaged(sunSpirit, source, hurt);
         callback.setReturnValue(hurt);
+    }
+
+    @Inject(method = "isInvulnerableTo", at = @At("HEAD"), cancellable = true)
+    private void bossRefactorAether$releaseCombatInvulnerability(
+            DamageSource source, CallbackInfoReturnable<Boolean> callback) {
+        SunSpirit sunSpirit = (SunSpirit) (Object) this;
+        if (SunSpiritMechanics.shouldUseBaseInvulnerability(
+                sunSpirit.isBossFight())) {
+            callback.setReturnValue(super.isInvulnerableTo(source));
+        }
     }
 
     @Inject(method = "reset", at = @At("TAIL"), remap = false)

@@ -26,18 +26,10 @@ public final class SunSpiritMechanicsSelfTest {
                 "the second attack must be Rising Flame");
         check(SunSpiritMechanics.attackForIndex(2) == SunSpiritAttack.TITAN_FIST,
                 "the third attack must be Titan Fist");
-        check(SunSpiritMechanics.shouldStartFightFromPlayerAttack(
-                        true, true, false),
-                "player damage during dialogue must start the boss fight");
-        check(!SunSpiritMechanics.shouldStartFightFromPlayerAttack(
-                        false, true, false),
-                "blocked player damage must not start the boss fight");
-        check(!SunSpiritMechanics.shouldStartFightFromPlayerAttack(
-                        true, false, false),
-                "lethal player damage must not start a dead boss fight");
-        check(!SunSpiritMechanics.shouldStartFightFromPlayerAttack(
-                        true, true, true),
-                "player damage must not restart an active boss fight");
+        check(!SunSpiritMechanics.shouldUseBaseInvulnerability(false),
+                "dialogue must retain the Sun Spirit's original invulnerability");
+        check(SunSpiritMechanics.shouldUseBaseInvulnerability(true),
+                "combat must release the Sun Spirit's special invulnerability");
         verifyParryBreakPhases();
         checkClose(SunSpiritMechanics.phaseDamageMultiplier(true, 1.2), 1.2,
                 "phase two must apply its damage multiplier");

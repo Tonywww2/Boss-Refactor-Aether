@@ -7,8 +7,6 @@ import com.aetherteam.aether.entity.monster.dungeon.boss.SunSpirit;
 import com.aetherteam.aether.entity.projectile.crystal.AbstractCrystal;
 import com.aetherteam.aether.entity.projectile.crystal.FireCrystal;
 import com.aetherteam.aether.entity.projectile.crystal.IceCrystal;
-import com.aetherteam.aether.client.AetherSoundEvents;
-import com.aetherteam.aether.event.AetherEventDispatch;
 import com.tonywww.bossrefactoraether.BossRefactorAether;
 import com.tonywww.bossrefactoraether.config.BossRefactorAetherConfig;
 import com.tonywww.bossrefactoraether.mixin.LivingEntityDamageBlockAccessor;
@@ -159,11 +157,6 @@ public final class SunSpiritCombatService {
         if (sunSpirit.level().isClientSide()) {
             return;
         }
-        if (source.getEntity() instanceof Player player
-                && SunSpiritMechanics.shouldStartFightFromPlayerAttack(
-                    hurt, sunSpirit.isAlive(), sunSpirit.isBossFight())) {
-            startFightFromPlayerAttack(sunSpirit, player);
-        }
         if (!hurt) {
             return;
         }
@@ -181,19 +174,6 @@ public final class SunSpiritCombatService {
                         .SUN_SPIRIT_TIMING.summonRecoveryTicks.get());
             }
         }
-    }
-
-    private static void startFightFromPlayerAttack(SunSpirit sunSpirit,
-                                                   Player player) {
-        sunSpirit.setTarget(player);
-        sunSpirit.setBossFight(true);
-        if (sunSpirit.getDungeon() != null) {
-            sunSpirit.closeRoom();
-        }
-        sunSpirit.level().playSound(null, sunSpirit.blockPosition(),
-                AetherSoundEvents.ENTITY_SUN_SPIRIT_ACTIVATE.get(),
-                SoundSource.HOSTILE, 1.0F, 1.0F);
-        AetherEventDispatch.onBossFightStart(sunSpirit, sunSpirit.getDungeon());
     }
 
     public static boolean isCurrentAttackParryable(SunSpirit sunSpirit) {
