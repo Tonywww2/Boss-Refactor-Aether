@@ -92,10 +92,6 @@ public abstract class SliderMixin extends PathfinderMob
     @Unique
     private boolean bossRefactorAether$statusTitleInitialized;
     @Unique
-    private boolean bossRefactorAether$previousNoPhysics;
-    @Unique
-    private boolean bossRefactorAether$blockCollisionBypassOwned;
-    @Unique
     private boolean bossRefactorAether$wasAwake;
 
     protected SliderMixin(EntityType<? extends PathfinderMob> entityType, Level level) {
@@ -109,9 +105,9 @@ public abstract class SliderMixin extends PathfinderMob
 
     @Inject(method = "tick", at = @At("HEAD"))
     private void bossRefactorAether$beginBlockCollisionBypass(CallbackInfo callback) {
-        if (!bossRefactorAether$blockCollisionBypassOwned) {
-            bossRefactorAether$previousNoPhysics = this.noPhysics;
-        }
+        this.noPhysics = true;
+        this.horizontalCollision = false;
+        this.verticalCollision = false;
         Slider slider = (Slider) (Object) this;
         SliderCombatService.ensureArena(slider);
         boolean awake = slider.isAwake() && !slider.isDeadOrDying();
@@ -126,12 +122,8 @@ public abstract class SliderMixin extends PathfinderMob
         }
         bossRefactorAether$wasAwake = awake;
         if (!awake || !controlsMovement) {
-            bossRefactorAether$restoreBlockCollisionBypass();
             return;
         }
-        this.noPhysics = true;
-        this.horizontalCollision = false;
-        this.verticalCollision = false;
         if (bossRefactorAether$getCombatState().isPausingAtCorner()) {
             this.setDeltaMovement(Vec3.ZERO);
         }
@@ -182,29 +174,12 @@ public abstract class SliderMixin extends PathfinderMob
     @Inject(method = "tick", at = @At("TAIL"))
     private void bossRefactorAether$tick(CallbackInfo callback) {
         Slider slider = (Slider) (Object) this;
-        try {
-            SliderCombatService.tick(slider);
-            if (!slider.level().isClientSide()
-                    && !bossRefactorAether$statusTitleInitialized) {
-                bossRefactorAether$statusTitleInitialized = true;
-                bossRefactorAether$refreshBossTitle();
-            }
-        } finally {
-            if (SliderCombatService.controlsChaseTravel(slider)) {
-                bossRefactorAether$blockCollisionBypassOwned = true;
-                this.noPhysics = true;
-            } else {
-                bossRefactorAether$restoreBlockCollisionBypass();
-            }
+        SliderCombatService.tick(slider);
+        if (!slider.level().isClientSide()
+                && !bossRefactorAether$statusTitleInitialized) {
+            bossRefactorAether$statusTitleInitialized = true;
+            bossRefactorAether$refreshBossTitle();
         }
-    }
-
-    @Unique
-    private void bossRefactorAether$restoreBlockCollisionBypass() {
-        if (bossRefactorAether$blockCollisionBypassOwned || this.noPhysics) {
-            this.noPhysics = bossRefactorAether$previousNoPhysics;
-        }
-        bossRefactorAether$blockCollisionBypassOwned = false;
     }
 
     @Redirect(

@@ -41,6 +41,8 @@ public final class SliderCombatService {
     public static final ResourceLocation PICKAXE_BREAK_SOURCE = ResourceLocation.fromNamespaceAndPath(
         BossRefactorAether.MOD_ID, "pickaxe_break");
 
+    private static final int MINIMUM_PARRY_WINDOW_TICKS = 20;
+
     private SliderCombatService() {
     }
 
@@ -197,7 +199,8 @@ public final class SliderCombatService {
         LivingEntity recoveryTarget = validTarget(slider);
         state.outOfCombatHealingTicks = BossRecovery.tick(
             slider,
-            !slider.isAwake() || recoveryTarget == null,
+            !slider.isAwake(),
+            recoveryTarget == null,
             state.outOfCombatHealingTicks);
         if (!slider.isAwake() || slider.isDeadOrDying()) {
             deactivateArenaMovement(slider);
@@ -1400,7 +1403,6 @@ public final class SliderCombatService {
         if (state.skillPhase != SliderSkillPhase.DASHING) {
             return;
         }
-        closeParryWindow(slider);
         slider.setDeltaMovement(Vec3.ZERO);
         state.completedDashes++;
 
@@ -1415,14 +1417,23 @@ public final class SliderCombatService {
             finishSkill(slider);
             return;
         }
+        boolean previousDashParryable = state.currentDashParryable;
+        state.currentDashParryable = !BossRefactorAetherConfig.SLIDER_COMBAT
+            .phaseTwoFirstDashUnblockable.get()
+            || !SliderMechanics.isUnblockableChainDash(
+                state.skillPhaseTwo, state.completedDashes);
+        int intervalTicks = BossRefactorAetherConfig.SLIDER_TIMING
+            .dashIntervalTicks.get();
+        state.dashIntervalDuration = state.currentDashParryable && !previousDashParryable
+            ? Math.max(intervalTicks, MINIMUM_PARRY_WINDOW_TICKS)
+            : intervalTicks;
         state.skillPhase = SliderSkillPhase.DASH_INTERVAL;
         state.phaseTicks = 0;
         LivingEntity target = validTarget(slider);
         DashAim aim = target != null
                 ? resolveSmartDashAim(
                     slider, target, state.skillPhaseTwo, state.skillGlidePower,
-                    BossRefactorAetherConfig.SLIDER_TIMING
-                        .dashIntervalTicks.get())
+                    state.dashIntervalDuration)
                 : null;
         if (aim == null) {
             finishSkill(slider);
@@ -1508,12 +1519,12 @@ public final class SliderCombatService {
         slider.setTargetPoint(null);
         slider.setDeltaMovement(Vec3.ZERO);
         state.phaseTicks++;
+        int intervalTicks = state.dashIntervalDuration > 0
+            ? state.dashIntervalDuration
+            : BossRefactorAetherConfig.SLIDER_TIMING.dashIntervalTicks.get();
         updateTelegraphProgress(slider, AttackTelegraph.windupProgress(
-                state.phaseTicks,
-                BossRefactorAetherConfig.SLIDER_TIMING
-                    .dashIntervalTicks.get()));
-        if (state.phaseTicks >= BossRefactorAetherConfig.SLIDER_TIMING
-            .dashIntervalTicks.get()) {
+                state.phaseTicks, intervalTicks));
+        if (state.phaseTicks >= intervalTicks) {
             startDash(slider);
         }
     }
@@ -1587,6 +1598,8 @@ public final class SliderCombatService {
     }
 
     private static void synchronizeParryWindow(Slider slider) {
+        state(slider).parryWindowOpen =
+            SliderParryIntegration.bridge().isParryable(slider);
         if (isCurrentAttackParryable(slider)) {
             openParryWindow(slider);
         } else {

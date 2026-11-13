@@ -89,7 +89,7 @@ public final class SunSpiritCombatService {
 
         LivingEntity target = validTarget(sunSpirit);
         state.outOfCombatHealingTicks = BossRecovery.tick(
-            sunSpirit, target == null, state.outOfCombatHealingTicks);
+            sunSpirit, false, target == null, state.outOfCombatHealingTicks);
         if (target == null) {
             cancelAttack(sunSpirit, state);
             return;
@@ -184,7 +184,9 @@ public final class SunSpiritCombatService {
         if (!isCurrentAttackParryable(sunSpirit)) {
             return;
         }
-        enterRecovery(sunSpirit, state(sunSpirit), BossRefactorAetherConfig
+        SunSpiritCombatState state = state(sunSpirit);
+        state.parryWindowOpen = false;
+        enterRecovery(sunSpirit, state, BossRefactorAetherConfig
                 .SUN_SPIRIT_TIMING.parryRecoveryTicks.get());
     }
 
@@ -874,6 +876,8 @@ public final class SunSpiritCombatService {
 
     private static void synchronizeParryWindow(SunSpirit sunSpirit,
                                                 SunSpiritCombatState state) {
+        state.parryWindowOpen =
+            SunSpiritParryIntegration.bridge().isParryable(sunSpirit);
         if (isCurrentAttackParryable(sunSpirit)) {
             openParryWindow(sunSpirit, state);
         } else {

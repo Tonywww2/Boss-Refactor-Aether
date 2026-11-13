@@ -7,4 +7,8 @@ public interface SunSpiritParryBridge {
 
     boolean closeWindow(SunSpirit sunSpirit);
 
+    default boolean isParryable(SunSpirit sunSpirit) {
+        return false;
+    }
+
 }

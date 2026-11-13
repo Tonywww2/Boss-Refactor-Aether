@@ -7,4 +7,8 @@ public interface ValkyrieQueenParryBridge {
 
     boolean closeWindow(ValkyrieQueen queen);
 
+    default boolean isParryable(ValkyrieQueen queen) {
+        return false;
+    }
+
 }

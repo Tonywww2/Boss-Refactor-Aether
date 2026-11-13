@@ -71,6 +71,7 @@ public final class BossRefactorAetherConfig {
 
         public static final class BossRecoveryConfig {
                 public final ForgeConfigSpec.BooleanValue enabled;
+                public final ForgeConfigSpec.BooleanValue healWhenNoTarget;
                 public final ForgeConfigSpec.IntValue intervalTicks;
                 public final ForgeConfigSpec.DoubleValue flatHealing;
                 public final ForgeConfigSpec.DoubleValue maxHealthRatio;
@@ -84,6 +85,11 @@ public final class BossRefactorAetherConfig {
                                         "Enable out-of-combat boss healing.",
                                         "是否启用 Boss 脱战回血。")
                                         .define("enabled", true);
+                        healWhenNoTarget = builder.comment(
+                                        "Start healing when a boss has no valid target.",
+                                        "Boss 无有效目标时是否开始回血。")
+                                        .define("heal_when_no_target",
+                                                        BossRecovery.DEFAULT_HEAL_WHEN_NO_TARGET);
                         intervalTicks = defineInt(
                                         builder, "interval_ticks",
                                         BossRecovery.DEFAULT_INTERVAL_TICKS,
@@ -158,7 +164,7 @@ public final class BossRefactorAetherConfig {
                                         0.0, 1.0, "Damage reduction per Stone Barrier layer.",
                                         "每层石质屏障提供的伤害减免。");
                         parryRecoveryTicks = defineInt(builder, "parry_recovery_ticks",
-                                        SliderMechanics.PARRY_RECOVERY_TICKS, 1, MAX_TICKS,
+                                        SliderMechanics.PARRY_RECOVERY_TICKS, 30, 100,
                                         "Recovery duration after a successful parry, in ticks.",
                                         "成功招架后的恢复时间，单位为 tick。");
                         stunTicks = defineInt(builder, "stun_ticks", SliderMechanics.STUN_TICKS,
@@ -334,7 +340,7 @@ public final class BossRefactorAetherConfig {
                         builder.comment("Slider timing in ticks.", "滑行魔石时间参数，单位为 tick。")
                                         .push("timing");
                         chargeTicks = defineInt(builder, "continuous_glide_windup_ticks",
-                                        SliderMechanics.CHARGE_TICKS, 0, MAX_TICKS,
+                                        SliderMechanics.CHARGE_TICKS, 20, MAX_TICKS,
                                         "Continuous Glide windup.", "连续滑行前摇。");
                         dashTickLimit = defineInt(builder, "continuous_glide_dash_tick_limit",
                                         SliderMechanics.DASH_TICK_LIMIT, 1, MAX_TICKS,
@@ -421,7 +427,7 @@ public final class BossRefactorAetherConfig {
                         builder.comment("Slider client display settings.", "滑行魔石客户端显示设置。")
                                         .push("display");
                         statusLabelHeightOffset = defineDouble(builder,
-                                        "status_label_height_offset", 1.35, 0.0, 8.0,
+                                        "status_label_height_offset", 1.75, 0.0, 8.0,
                                         "Status-label height above the Slider's bounding box.",
                                         "状态标签高于魔石碰撞箱顶部的高度。");
                         builder.pop();
@@ -623,9 +629,9 @@ public final class BossRefactorAetherConfig {
                                         ValkyrieQueenMechanics.SKILL_RECOVERY_TICKS, 0, MAX_TICKS,
                                         "Recovery after a martial skill.", "武神技后的恢复时间。");
                         skillOneWindupTicks = defineInt(builder, "skill_one_windup_ticks", 36,
-                                        0, MAX_TICKS, "Martial Skill I windup.", "武神技一前摇。");
+                                        20, MAX_TICKS, "Martial Skill I windup.", "武神技一前摇。");
                         skillTwoWindupTicks = defineInt(builder, "skill_two_windup_ticks", 34,
-                                        0, MAX_TICKS, "Martial Skill II windup.", "武神技二前摇。");
+                                        20, MAX_TICKS, "Martial Skill II windup.", "武神技二前摇。");
                         spearWindupTicks = defineInt(builder, "spear_throw_windup_ticks", 44,
                                         0, MAX_TICKS, "Spear Throw windup.", "武神技·投掷前摇。");
                         swordWaveGapTicks = defineInt(builder, "sword_wave_gap_ticks",
@@ -653,7 +659,7 @@ public final class BossRefactorAetherConfig {
                                         ValkyrieQueenMechanics.THUNDER_CLOUD_DAMAGE_INTERVAL, 1, MAX_TICKS,
                                         "Delay between cloud damage pulses.", "雷云伤害脉冲间隔。");
                         parryRecoveryTicks = defineInt(builder, "parry_recovery_ticks",
-                                        ValkyrieQueenMechanics.PARRY_RECOVERY_TICKS, 1, MAX_TICKS,
+                                        ValkyrieQueenMechanics.PARRY_RECOVERY_TICKS, 30, 100,
                                         "Recovery after being parried.", "被招架后的恢复时间。");
                         builder.pop();
                 }
@@ -853,9 +859,9 @@ public final class BossRefactorAetherConfig {
                         projectileWindupTicks = defineInt(builder, "projectile_windup_ticks", 24,
                                         0, MAX_TICKS, "Projectile windup.", "滚炎球/冰结球前摇。");
                         risingFlameWindupTicks = defineInt(builder, "rising_flame_windup_ticks", 36,
-                                        0, MAX_TICKS, "Rising Flame windup.", "烈焰升腾前摇。");
+                                        20, MAX_TICKS, "Rising Flame windup.", "烈焰升腾前摇。");
                         titanFistWindupTicks = defineInt(builder, "titan_fist_windup_ticks", 32,
-                                        0, MAX_TICKS, "Titan Fist windup.", "巨神之拳前摇。");
+                                        20, MAX_TICKS, "Titan Fist windup.", "巨神之拳前摇。");
                         summonWindupTicks = defineInt(builder, "summon_windup_ticks", 60,
                                         0, MAX_TICKS, "Distinct dedicated-summon windup.",
                                         "具有明显区别的专用召唤前摇。");
@@ -877,7 +883,7 @@ public final class BossRefactorAetherConfig {
                                         0, MAX_TICKS, "Shield cooldown after blocking a heavy skill.",
                                         "格挡重型技能后的盾牌冷却。");
                         parryRecoveryTicks = defineInt(builder, "parry_recovery_ticks", 40,
-                                        1, MAX_TICKS, "Recovery after a SlashBlade parry.",
+                                        30, 100, "Recovery after a SlashBlade parry.",
                                         "被拔刀剑招架后的恢复时间。");
                         phaseTwoSigilIntervalTicks = defineInt(builder,
                                         "phase_two_sigil_interval_ticks", 160, 1, MAX_TICKS,

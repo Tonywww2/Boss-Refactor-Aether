@@ -13,5 +13,9 @@ public interface SliderParryBridge {
 
     boolean closeWindow(Slider slider);
 
+    default boolean isParryable(Slider slider) {
+        return false;
+    }
+
     void mirrorBarrierBreak(Slider slider, @Nullable LivingEntity actor, ResourceLocation sourceId);
 }

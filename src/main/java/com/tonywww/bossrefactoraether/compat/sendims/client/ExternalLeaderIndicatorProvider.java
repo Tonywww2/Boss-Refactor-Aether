@@ -21,14 +21,16 @@ public final class ExternalLeaderIndicatorProvider {
     }
 
     private static OptionalDouble warningProgress(LivingEntity entity) {
-        if (!isSupportedBoss(entity)
-                || !(entity instanceof AttackTelegraphAccess access)) {
+        if (!isSupportedBoss(entity)) {
             return OptionalDouble.empty();
+        }
+        if (!(entity instanceof AttackTelegraphAccess access)) {
+            return OptionalDouble.of(1.0);
         }
         AttackTelegraph telegraph = access.bossRefactorAether$getAttackTelegraph();
         return ParryIndicatorStyle.isVisible(true, telegraph)
                 ? OptionalDouble.of(telegraph.progress())
-                : OptionalDouble.empty();
+                : OptionalDouble.of(1.0);
     }
 
     private static boolean isSupportedBoss(LivingEntity entity) {

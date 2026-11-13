@@ -68,6 +68,7 @@ public final class SliderCombatState {
     int totalDashes;
     boolean extraDashDecided;
     boolean currentDashParryable;
+    int dashIntervalDuration;
     boolean parryWindowOpen;
     Vec3 dashDirection = Vec3.ZERO;
     Vec3 dashStart = Vec3.ZERO;
@@ -166,6 +167,7 @@ public final class SliderCombatState {
         totalDashes = 0;
         extraDashDecided = false;
         currentDashParryable = false;
+        dashIntervalDuration = 0;
         parryWindowOpen = false;
         dashDirection = Vec3.ZERO;
         dashStart = Vec3.ZERO;
@@ -177,8 +179,10 @@ public final class SliderCombatState {
     }
 
     public boolean isCurrentAttackParryable() {
-        return (skillPhase == SliderSkillPhase.CHARGING && currentDashParryable)
-            || (skillPhase == SliderSkillPhase.DASHING && currentDashParryable);
+        return currentDashParryable
+            && (skillPhase == SliderSkillPhase.CHARGING
+                || skillPhase == SliderSkillPhase.DASH_INTERVAL
+                || skillPhase == SliderSkillPhase.DASHING);
     }
 
     boolean claimShieldBlock(UUID playerId, long gameTime) {

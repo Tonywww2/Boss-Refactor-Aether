@@ -5,6 +5,7 @@ import com.aetherteam.aether.entity.monster.dungeon.boss.Slider;
 import com.aetherteam.aether.entity.monster.dungeon.boss.SunSpirit;
 import com.aetherteam.aether.entity.monster.dungeon.boss.ValkyrieQueen;
 import com.tonywww.bossrefactoraether.BossRefactorAether;
+import com.tonywww.bossrefactoraether.compat.OptionalCompatBootstrap;
 import com.tonywww.bossrefactoraether.config.BossRefactorAetherConfig;
 import com.tonywww.bossrefactoraether.slider.SliderCombatService;
 import com.tonywww.bossrefactoraether.slider.SliderParryBridge;
@@ -35,11 +36,16 @@ public final class SenDimsSliderCompat
     private static final String CLIENT_INDICATOR_PROVIDER =
             "com.tonywww.bossrefactoraether.compat.sendims.client.ExternalLeaderIndicatorProvider";
 
+    private static final int MINIMUM_PARRIED_TICKS = 30;
+    private static final int MAXIMUM_PARRIED_TICKS = 100;
+
     private SenDimsSliderCompat() {
     }
 
     public static void initialize() {
         SenDimsSliderCompat compat = new SenDimsSliderCompat();
+        // 先注册事件：事件类缺失时在这里失败，后面的 Leader 注册和桥接都还没做。
+        MinecraftForge.EVENT_BUS.register(compat);
         boolean registered = LeaderApi.registerLeaderType(
                 AetherEntityTypes.SLIDER.get(), LeaderProfile.EXTERNAL);
         if (!registered) {
@@ -61,7 +67,6 @@ public final class SenDimsSliderCompat
         SliderParryIntegration.install(compat);
         ValkyrieQueenParryIntegration.install(compat);
         SunSpiritParryIntegration.install(compat);
-        MinecraftForge.EVENT_BUS.register(compat);
         if (FMLEnvironment.dist == Dist.CLIENT) {
             registerClientIndicatorProvider();
         }
@@ -73,8 +78,8 @@ public final class SenDimsSliderCompat
         try {
             Class<?> provider = Class.forName(CLIENT_INDICATOR_PROVIDER);
             provider.getMethod("register").invoke(null);
-        } catch (ReflectiveOperationException exception) {
-            BossRefactorAether.LOGGER.error(
+        } catch (ReflectiveOperationException | LinkageError exception) {
+            BossRefactorAether.LOGGER.warn(
                     "Unable to register SenDimS external Leader indicator provider",
                     exception);
         }
@@ -96,6 +101,11 @@ public final class SenDimsSliderCompat
     }
 
     @Override
+    public boolean isParryable(Slider slider) {
+        return LeaderApi.isParryable(slider);
+    }
+
+    @Override
     public boolean openWindow(ValkyrieQueen queen) {
         return LeaderApi.openParryWindow(queen);
     }
@@ -103,6 +113,11 @@ public final class SenDimsSliderCompat
     @Override
     public boolean closeWindow(ValkyrieQueen queen) {
         return LeaderApi.closeParryWindow(queen);
+    }
+
+    @Override
+    public boolean isParryable(ValkyrieQueen queen) {
+        return LeaderApi.isParryable(queen);
     }
 
     @Override
@@ -116,14 +131,20 @@ public final class SenDimsSliderCompat
     }
 
     @Override
+    public boolean isParryable(SunSpirit sunSpirit) {
+        return LeaderApi.isParryable(sunSpirit);
+    }
+
+    @Override
     public void mirrorBarrierBreak(Slider slider, @Nullable LivingEntity actor,
                                    ResourceLocation sourceId) {
+        int ticks = parriedTicks(BossRefactorAetherConfig.SLIDER_COMBAT.stunTicks.get());
         ParryResult result = LeaderApi.enterParriedState(
                 slider,
                 actor,
                 sourceId,
-                Math.max(1, BossRefactorAetherConfig.SLIDER_COMBAT.stunTicks.get()),
-                Math.max(1, BossRefactorAetherConfig.SLIDER_COMBAT.stunTicks.get())
+                ticks,
+                ticks
         );
         if (result != ParryResult.SUCCESS) {
             BossRefactorAether.LOGGER.debug(
@@ -133,6 +154,18 @@ public final class SenDimsSliderCompat
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public void onParryAttempt(LeaderParryAttemptEvent event) {
+        if (!SliderParryIntegration.bridge().isAvailable()) {
+            return;
+        }
+        try {
+            handleParryAttempt(event);
+        } catch (LinkageError error) {
+            OptionalCompatBootstrap.disableSenDims(
+                    "incompatible SenDimS parry attempt event", error);
+        }
+    }
+
+    private static void handleParryAttempt(LeaderParryAttemptEvent event) {
         if (event.getTarget() instanceof SunSpirit sunSpirit
                 && SunSpiritCombatService.isCurrentAttackParryable(sunSpirit)) {
             SunSpiritCombatService.acceptParry(sunSpirit);
@@ -168,8 +201,12 @@ public final class SenDimsSliderCompat
                 BossRefactorAetherConfig.SLIDER_COMBAT.stunTicks.get()));
     }
 
+    private static int parriedTicks(int ticks) {
+        return Math.min(MAXIMUM_PARRIED_TICKS, Math.max(MINIMUM_PARRIED_TICKS, ticks));
+    }
+
     private static void completeParry(LeaderParryAttemptEvent event, int ticks) {
-        int feedbackTicks = Math.max(1, ticks);
+        int feedbackTicks = parriedTicks(ticks);
         event.setDecision(LeaderParryDecision.PARRY);
         event.setParriedTicks(feedbackTicks);
         event.setStunTicks(feedbackTicks);

@@ -92,7 +92,7 @@ public final class ValkyrieQueenCombatService {
 
         LivingEntity target = validTarget(queen);
         state.outOfCombatHealingTicks = BossRecovery.tick(
-            queen, target == null, state.outOfCombatHealingTicks);
+            queen, false, target == null, state.outOfCombatHealingTicks);
         if (target == null) {
             queen.setAggressive(false);
             cancelActiveAttack(queen, state);
@@ -162,7 +162,7 @@ public final class ValkyrieQueenCombatService {
     public static void acceptParry(ValkyrieQueen queen) {
         ValkyrieQueenCombatState state = state(queen);
         state.swordWaves.clear();
-        closeParryWindow(queen, state);
+        state.parryWindowOpen = false;
         enterRecovery(queen, state, BossRefactorAetherConfig.VALKYRIE_QUEEN_TIMING
             .parryRecoveryTicks.get());
     }
@@ -963,6 +963,8 @@ public final class ValkyrieQueenCombatService {
 
     private static void synchronizeParryWindow(ValkyrieQueen queen,
                                                 ValkyrieQueenCombatState state) {
+        state.parryWindowOpen =
+            ValkyrieQueenParryIntegration.bridge().isParryable(queen);
         if (isCurrentAttackParryable(queen)) {
             openParryWindow(queen, state);
         } else {

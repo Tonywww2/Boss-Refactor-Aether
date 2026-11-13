@@ -2,6 +2,37 @@
 
 All notable changes to Boss Refactor Aether are documented in this file.
 
+## [1.4.4] - 2026-11-12
+
+### Changed
+
+- SenDimS is an optional integration with no version floor. An incompatible SenDimS (missing or changed Leader API, events or client indicator API) now logs a warning and turns the integration off, and the bosses keep fighting with this mod's own rules instead of failing to load or crashing.
+
+## [1.4.3] - 2026-11-12
+
+### Changed
+
+- Slider Continuous Glide keeps one SenDimS parry window across the whole chain, including the pauses between dashes. When the first dash is unblockable, the pause before the first parryable dash lasts at least 20 ticks.
+- SenDimS parried durations are clamped to 30-100 ticks, and every `parry_recovery_ticks` setting now accepts 30-100.
+- Parryable windups (`continuous_glide_windup_ticks`, `skill_one_windup_ticks`, `skill_two_windup_ticks`, `rising_flame_windup_ticks`, `titan_fist_windup_ticks`) now have a minimum of 20 ticks.
+- `slider.display.status_label_height_offset` now defaults to `1.75` so the status labels no longer overlap the SenDimS warning and stun characters.
+
+### Fixed
+
+- The SenDimS warning provider now shows a fixed warning while a parry window is open without a visible telegraph.
+- Valkyrie Queen and Sun Spirit no longer close the SenDimS parry window from inside `LeaderParryAttemptEvent`.
+- Slider, Valkyrie Queen and Sun Spirit resynchronize their local parry-window flag with SenDimS every tick, so a window restored from a save no longer stays open.
+
+## [1.4.2] - 2026-10-14
+
+### Added
+
+- Added `boss_recovery.heal_when_no_target`, defaulting to `true`, to control whether bosses heal while they have no valid target. A dormant Slider still heals regardless of this setting.
+
+### Changed
+
+- Slider bypasses block collision on every tick again instead of restoring its previous collision state after chase.
+
 ## [1.4.1] - 2026-09-01
 
 ### Fixed
